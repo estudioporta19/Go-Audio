@@ -81,7 +81,7 @@
             border-bottom: 1px solid #eee;
             display: flex;
             align-items: center;
-            justify-content: space-between; /* Para empurrar o loop para a direita */
+            justify-content: space-between;
             font-size: 0.95em;
             color: #555;
             transition: background-color 0.2s ease;
@@ -100,8 +100,8 @@
         #playlist li .track-info {
             display: flex;
             align-items: center;
-            cursor: pointer; /* A área do nome e número é clicável para tocar */
-            flex-grow: 1; /* Permite que o nome da faixa ocupe o espaço */
+            cursor: pointer;
+            flex-grow: 1;
         }
 
         #playlist li .track-number {
@@ -288,12 +288,20 @@
 
         function updateProgressBar() {
             if (isPlaying && currentBuffer && audioContext && audioContext.state === 'running') {
-                const elapsed = audioContext.currentTime - startTime;
+                let elapsed = audioContext.currentTime - startTime;
+
+                // Se a faixa está em loop, simule o tempo "resetando"
+                if (currentSource && currentSource.loop) {
+                    elapsed = elapsed % currentBuffer.duration;
+                }
+
                 const progress = (elapsed / currentBuffer.duration) * 100;
                 progressBar.style.width = `${progress}%`;
                 currentTimeSpan.textContent = formatTime(elapsed);
 
-                if (elapsed >= currentBuffer.duration) {
+                // Garante que o progresso visual chega a 100% no final de uma não-looping ou antes de resetar para o loop
+                // (Esta condição já é coberta pelo currentSource.onended para faixas sem loop, mas serve de fallback)
+                if (elapsed >= currentBuffer.duration && !currentSource.loop) {
                     progressBar.style.width = '100%';
                     currentTimeSpan.textContent = formatTime(currentBuffer.duration);
                 }
@@ -306,6 +314,7 @@
             }
         }
 
+        // Reseta completamente o estado do player e a flag do primeiro space
         function resetPlaybackState() {
             if (currentSource) {
                 currentSource.stop();
@@ -326,23 +335,26 @@
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
             highlightCurrentTrack();
-            firstSpacePress = true;
+            firstSpacePress = true; // Reseta a flag do primeiro GO
         }
 
         // --- Funções de Áudio ---
 
+        // Inicializa o AudioContext, se ainda não estiver ativo
         function initAudioContext() {
             if (!audioContext || audioContext.state === 'closed') {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }
 
+        // Carrega e decodifica um arquivo de áudio. Retorna o AudioBuffer.
         async function loadAudioFile(file) {
             initAudioContext();
             const arrayBuffer = await file.arrayBuffer();
             return await audioContext.decodeAudioData(arrayBuffer);
         }
 
+        // Reproduz um AudioBuffer
         function playAudio(buffer, offset = 0) {
             initAudioContext();
 
@@ -359,24 +371,16 @@
             // Verifica a propriedade de loop da faixa atual
             if (currentIndex !== -1 && playlist[currentIndex] && playlist[currentIndex].loop) {
                 currentSource.loop = true;
-                // currentSource.loopStart = 0; // Opcional: Define onde o loop começa
-                // currentSource.loopEnd = buffer.duration; // Opcional: Define onde o loop termina
             } else {
                 currentSource.loop = false;
             }
 
-
             currentSource.onended = () => {
-                // Esta função só deve avançar se a música terminou naturalmente E NÃO ESTIVER EM LOOP.
-                // Se estiver em loop, o onended NÃO é chamado até que o loop seja desativado e a música termine.
-                if (isPlaying && audioContext.state !== 'suspended' && !currentSource.loop) {
-                    // Pequena margem para garantir que a música realmente terminou
-                    if ((audioContext.currentTime - startTime) >= buffer.duration - 0.05) {
-                        playNextAuto(); // Avança para a próxima faixa automaticamente
-                    }
-                } else if (!isPlaying) {
-                    updateProgressBar();
+                // Esta função é chamada quando a faixa termina (se não estiver em loop)
+                if (!currentSource.loop) { // Se não estiver em loop, para e espera
+                    stopAudioAfterCompletion(); // Nova função para parar e esperar
                 }
+                // Se estiver em loop, onended não é chamado, então nada acontece aqui
             };
 
             currentSource.start(0, offset);
@@ -389,6 +393,30 @@
             audioContext.resume();
         }
 
+        // Nova função para parar a faixa no final (sem avançar)
+        function stopAudioAfterCompletion() {
+            // Não chame stopAudio() diretamente para não resetar o currentIndex
+            // Apenas para a reprodução e atualiza o estado visual
+            if (currentSource) {
+                currentSource.stop();
+                currentSource.disconnect();
+                currentSource = null;
+            }
+            if (audioContext && audioContext.state === 'running') {
+                 audioContext.suspend();
+            }
+            isPlaying = false;
+            playPauseButton.textContent = 'Play/Pause';
+            startOffset = 0; // Prepara para começar do início na próxima vez
+            startTime = 0;
+            currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa'; // Mantém o nome da faixa atual
+            cancelAnimationFrame(animationFrameId);
+            updateProgressBar(); // Atualiza para mostrar 00:00 e barra vazia
+            // firstSpacePress permanece false para que o próximo GO avance para a próxima música
+        }
+
+
+        // Pausa o áudio
         function pauseAudio() {
             if (currentSource && isPlaying) {
                 currentSource.stop();
@@ -402,6 +430,7 @@
             }
         }
 
+        // Para o áudio completamente e reseta para o início da faixa atual
         function stopAudio() {
             if (currentSource) {
                 currentSource.stop();
@@ -419,21 +448,22 @@
             highlightCurrentTrack();
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
-            firstSpacePress = true;
+            firstSpacePress = true; // Resetar a flag do primeiro GO após um stop completo
         }
 
+        // Carrega e reproduz uma faixa pelo índice
         async function loadAndPlayTrack(index) {
             if (playlist.length === 0) {
                  stopAudio();
                  return;
             }
             if (index < 0 || index >= playlist.length) {
-                index = 0;
+                index = 0; // Loop de volta ao início da playlist
             }
 
             currentIndex = index;
             currentTrackNameSpan.textContent = playlist[currentIndex].name;
-            startOffset = 0;
+            startOffset = 0; // Sempre começa do início ao carregar uma nova faixa
 
             try {
                 if (!playlist[currentIndex].buffer) {
@@ -446,35 +476,37 @@
             } catch (error) {
                 console.error("Erro ao carregar ou decodificar áudio:", error);
                 alert("Não foi possível carregar a faixa: " + playlist[currentIndex].name + ". Verifique o formato do arquivo.");
-                playNextAuto();
+                // Se der erro ao carregar, não avança automaticamente, apenas para.
+                stopAudioAfterCompletion(); // Parar e esperar um novo GO
             }
         }
 
         // playNext para uso manual (botões, seta direita, barra de espaço)
         function playNext() {
             if (playlist.length === 0) return;
+            // Interrompe qualquer faixa tocando, incluindo loops
+            if (currentSource) {
+                currentSource.stop();
+                currentSource.disconnect();
+                currentSource = null;
+            }
+            isPlaying = false; // Define como não tocando para o playNext lidar com isso
+
             const nextIndex = (currentIndex + 1) % playlist.length;
             loadAndPlayTrack(nextIndex);
         }
 
-        // playNext para uso automático (quando a música termina)
-        function playNextAuto() {
-            if (playlist.length === 0) return;
-            // Se a faixa atual está em loop, não avança automaticamente
-            if (currentIndex !== -1 && playlist[currentIndex] && playlist[currentIndex].loop) {
-                return; // Não faz nada, a música continua em loop
-            }
-
-            const nextIndex = (currentIndex + 1) % playlist.length;
-            if (nextIndex === 0 && playlist.length > 0 && currentIndex === playlist.length -1) { // Se voltou para a primeira depois de um loop completo da playlist
-                stopAudio(); // Parar se a playlist terminou de tocar tudo
-            } else {
-                loadAndPlayTrack(nextIndex);
-            }
-        }
-
+        // playPrev para uso manual
         function playPrev() {
             if (playlist.length === 0) return;
+            // Interrompe qualquer faixa tocando, incluindo loops
+            if (currentSource) {
+                currentSource.stop();
+                currentSource.disconnect();
+                currentSource = null;
+            }
+            isPlaying = false;
+
             const prevIndex = (currentIndex - 1 + playlist.length) % playlist.length;
             loadAndPlayTrack(prevIndex);
         }
@@ -506,14 +538,13 @@
                 const file = files[i];
                 if (file.type.startsWith('audio/')) {
                     hasAudioFiles = true;
-                    // Adicionando a propriedade 'loop' inicializada como false
                     playlist.push({ name: file.name, file: file, buffer: null, duration: 0, loop: false });
 
                     const listItem = document.createElement('li');
 
                     const trackInfoDiv = document.createElement('div');
-                    trackInfoDiv.classList.add('track-info'); // Para agrupar número e nome
-                    trackInfoDiv.dataset.index = playlist.length - 1; // Guarda o índice
+                    trackInfoDiv.classList.add('track-info');
+                    trackInfoDiv.dataset.index = playlist.length - 1;
                     trackInfoDiv.addEventListener('click', () => {
                         loadAndPlayTrack(parseInt(trackInfoDiv.dataset.index));
                     });
@@ -526,16 +557,15 @@
 
                     listItem.appendChild(trackInfoDiv);
 
-                    // Botão de Loop
                     const loopButton = document.createElement('button');
                     loopButton.classList.add('loop-button');
                     loopButton.textContent = 'Loop';
                     loopButton.dataset.index = playlist.length - 1;
                     loopButton.addEventListener('click', (e) => {
-                        e.stopPropagation(); // Previne que o clique no botão ative o clique da lista
+                        e.stopPropagation();
                         const indexToToggle = parseInt(e.target.dataset.index);
-                        playlist[indexToToggle].loop = !playlist[indexToToggle].loop; // Alterna o estado de loop
-                        e.target.classList.toggle('active', playlist[indexToToggle].loop); // Atualiza o estilo do botão
+                        playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
+                        e.target.classList.toggle('active', playlist[indexToToggle].loop);
 
                         // Se a faixa em questão é a que está a tocar, atualiza o loop do AudioBufferSourceNode
                         if (currentIndex === indexToToggle && currentSource) {
@@ -572,8 +602,10 @@
                     await audioContext.resume();
                 }
                 if (!currentBuffer || startOffset === 0) {
+                    // Se não há faixa ou estava parada no início, toca a faixa atual do início
                     await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
                 } else {
+                    // Se estava em pausa, retoma daquele ponto
                     playAudio(currentBuffer, startOffset);
                 }
             }
@@ -581,7 +613,7 @@
 
         prevButton.addEventListener('click', playPrev);
         nextButton.addEventListener('click', playNext);
-        stopButton.addEventListener('click', stopAudio);
+        stopButton.addEventListener('click', stopAudio); // Este botão sempre faz um stop "completo"
 
         clearButton.addEventListener('click', () => {
             if (confirm("Tem certeza que deseja limpar a playlist?")) {
@@ -608,6 +640,7 @@
                     firstSpacePress = false;
                 } else {
                     // Próximos GOs: Para o que está a tocar e avança para a próxima
+                    // Se já estiver tocando, ou se a anterior parou no final, o playNext avançará
                     playNext();
                 }
             } else if (event.code === 'ArrowRight') {
