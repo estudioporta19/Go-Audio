@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minha Cue List de Áudio</title>
+    <style>
+        /* Estilos CSS */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 600px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            color: #0056b3;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 2px dashed #007bff;
+            border-radius: 5px;
+            background-color: #e9f7ff;
+            cursor: pointer;
+        }
+
+        input[type="file"]::-webkit-file-upload-button {
+            visibility: hidden;
+        }
+        input[type="file"]::before {
+            content: 'Selecione seus arquivos de áudio';
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            border: 1px solid #007bff;
+            border-radius: 3px;
+            padding: 8px 12px;
+            outline: none;
+            white-space: nowrap;
+            -webkit-user-select: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 10pt;
+        }
+        input[type="file"]:hover::before {
+            background: #0056b3;
+        }
+
+        #playlist {
+            list-style: none;
+            padding: 0;
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            background-color: #fdfdfd;
+        }
+
+        #playlist li {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95em;
+            color: #555;
+            transition: background-color 0.2s ease;
+        }
+
+        #playlist li:last-child {
+            border-bottom: none;
+        }
+
+        #playlist li.active {
+            background-color: #e6f7ff;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        #playlist li button {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background-color 0.2s ease;
+        }
+
+        #playlist li button:hover {
+            background-color: #218838;
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .controls button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+        }
+
+        .controls button:hover {
+            background-color: #0056b3;
+        }
+
+        .current-track {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 1.1em;
+            color: #0056b3;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Cue List de Áudio</h1>
+
+        <input type="file" id="audioFileInput" accept="audio/*" multiple>
+
+        <ul id="playlist">
+            </ul>
+
+        <div class="current-track">
+            Faixa Atual: <span id="currentTrackName">Nenhuma</span>
+        </div>
+
+        <div class="controls">
+            <button id="prevButton">Anterior</button>
+            <button id="playPauseButton">Play</button>
+            <button id="nextButton">Próximo</button>
+        </div>
+    </div>
+
+    <script>
+        // Lógica JavaScript
+        const audioFileInput = document.getElementById('audioFileInput');
+        const playlistElement = document.getElementById('playlist');
+        const playPauseButton = document.getElementById('playPauseButton');
+        const prevButton = document.getElementById('prevButton');
+        const nextButton = document.getElementById('nextButton');
+        const currentTrackNameSpan = document.getElementById('currentTrackName');
+
+        let audioContext; // Contexto de áudio da Web Audio API
+        let currentSource = null; // A fonte de áudio atualmente conectada ao contexto
+        let currentBuffer = null; // O buffer de áudio decodificado
+        let playlist = []; // Array de objetos { name: 'nome', file: FileObject }
+        let currentIndex = -1; // Índice da faixa atual na playlist
+        let isPlaying = false;
+        let startTime = 0; // Para controlar o tempo de reprodução ao pausar/retomar
+        let startOffset = 0; // Offset para a reprodução ao retomar
+
+        // --- Funções de Áudio ---
+
+        // Inicializa o AudioContext
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        // Carrega e decodifica um arquivo de áudio
+        async function loadAudioFile(file) {
+            initAudioContext();
+            const arrayBuffer = await file.arrayBuffer();
+            return await audioContext.decodeAudioData(arrayBuffer);
+        }
+
+        // Reproduz um áudio
+        function playAudio(buffer) {
+            if (currentSource) {
+                currentSource.stop(); // Para a faixa anterior se estiver tocando
+                currentSource.disconnect();
+            }
+            currentSource = audioContext.createBufferSource();
+            currentSource.buffer = buffer;
+            currentSource.connect(audioContext.destination);
+
+            currentSource.onended = () => {
+                if (isPlaying && audioContext.state !== 'suspended') {
+                    // Só avança se a reprodução foi natural e não interrompida
+                    playNext();
+                }
+            };
+
+            currentSource.start(0, startOffset);
+            startTime = audioContext.currentTime - startOffset; // Atualiza o startTime
+            isPlaying = true;
+            playPauseButton.textContent = 'Pause';
+            highlightCurrentTrack();
+        }
+
+        // Pausa o áudio
+        function pauseAudio() {
+            if (currentSource && isPlaying) {
+                currentSource.stop();
+                startOffset = audioContext.currentTime - startTime; // Salva o ponto de pausa
+                isPlaying = false;
+                playPauseButton.textContent = 'Play';
+            }
+        }
+
+        // Alterna Play/Pause
+        function togglePlayPause() {
+            if (isPlaying) {
+                pauseAudio();
+                audioContext.suspend(); // Suspende o contexto para economizar recursos
+            } else {
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        // Só retoma se houver um buffer para tocar
+                        if (currentBuffer) {
+                            playAudio(currentBuffer);
+                        } else if (playlist.length > 0) {
+                            // Se não houver buffer mas há itens na playlist, toca o primeiro ou o atual
+                            currentIndex = currentIndex === -1 ? 0 : currentIndex;
+                            loadAndPlayTrack(currentIndex);
+                        }
+                    });
+                } else if (playlist.length > 0) {
+                    // Se não estiver suspenso e não estiver tocando, mas tem playlist, toca
+                    currentIndex = currentIndex === -1 ? 0 : currentIndex;
+                    loadAndPlayTrack(currentIndex);
+                }
+            }
+        }
+
+        // Carrega e reproduz uma faixa pelo índice
+        async function loadAndPlayTrack(index) {
+            if (index < 0 || index >= playlist.length) {
+                console.warn("Índice de faixa inválido.");
+                isPlaying = false;
+                playPauseButton.textContent = 'Play';
+                currentTrackNameSpan.textContent = 'Nenhuma';
+                return;
+            }
+
+            currentIndex = index;
+            currentTrackNameSpan.textContent = playlist[currentIndex].name;
+            startOffset = 0; // Reseta o offset ao trocar de faixa
+
+            try {
+                currentBuffer = await loadAudioFile(playlist[currentIndex].file);
+                playAudio(currentBuffer);
+            } catch (error) {
+                console.error("Erro ao carregar ou decodificar áudio:", error);
+                alert("Não foi possível carregar a faixa: " + playlist[currentIndex].name);
+                playNext(); // Tenta a próxima faixa
+            }
+        }
+
+        // Toca a próxima faixa
+        function playNext() {
+            if (playlist.length === 0) return;
+            if (currentIndex < playlist.length - 1) {
+                loadAndPlayTrack(currentIndex + 1);
+            } else {
+                // Chegou ao fim da playlist
+                isPlaying = false;
+                playPauseButton.textContent = 'Play';
+                currentTrackNameSpan.textContent = 'Fim da Playlist';
+                if (currentSource) {
+                    currentSource.stop();
+                    currentSource.disconnect();
+                    currentSource = null;
+                }
+                highlightCurrentTrack(); // Remove o destaque da última faixa
+                currentIndex = -1; // Reseta o índice
+            }
+        }
+
+        // Toca a faixa anterior
+        function playPrev() {
+            if (playlist.length === 0) return;
+            if (currentIndex > 0) {
+                loadAndPlayTrack(currentIndex - 1);
+            } else {
+                // Voltou para o início da playlist
+                loadAndPlayTrack(0);
+            }
+        }
+
+        // Destaca a faixa atualmente tocando
+        function highlightCurrentTrack() {
+            const listItems = playlistElement.querySelectorAll('li');
+            listItems.forEach((item, index) => {
+                if (index === currentIndex) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+
+        // --- Event Listeners ---
+
+        // Ao selecionar arquivos
+        audioFileInput.addEventListener('change', async (event) => {
+            const files = event.target.files;
+            if (files.length === 0) return;
+
+            // Limpa a playlist anterior se novos arquivos forem adicionados
+            playlist = [];
+            playlistElement.innerHTML = '';
+            currentIndex = -1;
+            currentTrackNameSpan.textContent = 'Nenhuma';
+            isPlaying = false;
+            playPauseButton.textContent = 'Play';
+            if (currentSource) {
+                currentSource.stop();
+                currentSource.disconnect();
+                currentSource = null;
+                currentBuffer = null;
+            }
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close(); // Fecha o contexto antigo
+                audioContext = null; // Reinicia para evitar problemas com buffers antigos
+            }
+
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                if (file.type.startsWith('audio/')) {
+                    playlist.push({ name: file.name, file: file });
+
+                    const listItem = document.createElement('li');
+                    listItem.textContent = file.name;
+                    listItem.dataset.index = playlist.length - 1; // Guarda o índice
+                    listItem.addEventListener('click', () => {
+                        loadAndPlayTrack(parseInt(listItem.dataset.index));
+                    });
+                    playlistElement.appendChild(listItem);
+                } else {
+                    console.warn(`Arquivo ignorado (não é áudio): ${file.name}`);
+                }
+            }
+
+            if (playlist.length > 0) {
+                // Toca a primeira faixa automaticamente após carregar, se houver
+                // ou apenas prepare para tocar
+                // loadAndPlayTrack(0);
+            }
+        });
+
+        playPauseButton.addEventListener('click', togglePlayPause);
+        prevButton.addEventListener('click', playPrev);
+        nextButton.addEventListener('click', playNext);
+
+        // Adiciona um listener para a tecla de espaço (Play/Pause)
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Space') {
+                event.preventDefault(); // Evita que a barra de rolagem se mova
+                togglePlayPause();
+            } else if (event.code === 'ArrowRight') {
+                playNext();
+            } else if (event.code === 'ArrowLeft') {
+                playPrev();
+            }
+        });
+
+    </script>
+</body>
+</html>
