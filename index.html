@@ -301,7 +301,7 @@
     </div>
 
     <script>
-   const audioFileInput = document.getElementById('audioFileInput');
+  const audioFileInput = document.getElementById('audioFileInput');
         const playlistElement = document.getElementById('playlist');
         const playPauseButton = document.getElementById('playPauseButton');
         const prevButton = document.getElementById('prevButton');
@@ -414,7 +414,6 @@
         function playAudio(buffer, offset = 0) {
             initAudioContext();
 
-            // Desconecta e limpa o source e o ganho anteriores, se existirem
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
@@ -422,8 +421,8 @@
             if (gainNode) {
                 gainNode.disconnect();
             }
-            currentSource = null; // Reiniciar explicitamente para null antes de criar um novo
-            gainNode = null;     // Reiniciar explicitamente para null antes de criar um novo
+            currentSource = null;
+            gainNode = null;
 
             currentSource = audioContext.createBufferSource();
             currentSource.buffer = buffer;
@@ -437,19 +436,13 @@
             currentSource.loop = (playlist[currentIndex] && playlist[currentIndex].loop && !isGlobalAutoPlayActive);
 
             currentSource.onended = () => {
-                // Ao invés de lógica complexa aqui, apenas chama uma função de limpeza final
-                // se a faixa não estiver em loop (pois em loop, onended não é disparado no final natural)
                 if (currentSource && !currentSource.loop) {
-                    // Chamar stopAudioAfterCompletion que fará a limpeza necessária
-                    // e decidirá se avança para a próxima ou para completamente.
                     if (isGlobalAutoPlayActive) {
                         playNext();
                     } else {
                         stopAudioAfterCompletion();
                     }
                 }
-                // Não definir currentSource = null aqui. Isso é responsabilidade de stopAudioAfterCompletion
-                // ou do código que inicia a próxima faixa.
             };
 
             currentSource.start(0, offset);
@@ -466,7 +459,6 @@
          * Realiza a limpeza final após uma faixa terminar naturalmente (não em loop).
          */
         function stopAudioAfterCompletion() {
-            // Assegura que o source e o ganho são limpos de forma consistente.
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
@@ -477,27 +469,19 @@
                 gainNode = null;
             }
             
-            // Só suspende o AudioContext se o auto-play global não estiver ativo
             if (audioContext && audioContext.state === 'running' && !isGlobalAutoPlayActive) {
                  audioContext.suspend();
             }
             isPlaying = false;
             playPauseButton.textContent = 'Play/Pause';
             
-            // Atualiza o nome da faixa, mas só se não for avançar automaticamente
             if (!isGlobalAutoPlayActive) {
                 currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
-            } else {
-                // Se o autoplay está ativo, playNext() já vai definir o nome da próxima faixa.
-                // Resetar o nome aqui causaria um flash de 'Nenhuma Faixa'.
             }
             
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
-            startOffset = 0; // Resetar offset para começar a próxima faixa do zero
-            // Nota: highlightCurrentTrack() será chamado por loadAndPlayTrack se o autoplay estiver ativo.
-            // Se não estiver, já está "desmarcado" quando currentIndex muda para -1 em resetPlaybackState
-            // ou ao iniciar uma nova faixa.
+            startOffset = 0;
         }
 
         function pauseAudio() {
@@ -510,7 +494,6 @@
                     audioContext.suspend();
                 }
                 cancelAnimationFrame(animationFrameId);
-                // No pause, limpamos o currentSource e gainNode para que playAudio crie novos ao retomar
                 if (currentSource) {
                     currentSource.disconnect();
                     currentSource = null;
@@ -523,7 +506,6 @@
         }
 
         function stopAudio() {
-            // Esta função já é robusta na limpeza
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
@@ -551,26 +533,30 @@
          * Carrega (se necessário) e reproduz uma faixa da playlist pelo seu índice.
          * Garante que um novo AudioBufferSourceNode é criado.
          * @param {number} index O índice da faixa na playlist.
+         * @param {boolean} forceReloadBuffer Força o recarregamento e decodificação do buffer de áudio.
          */
-        async function loadAndPlayTrack(index) {
+        async function loadAndPlayTrack(index, forceReloadBuffer = false) {
             if (playlist.length === 0) {
                  stopAudio();
                  return;
             }
 
+            let newIndex = index;
+            // Verifica se está a ciclar do fim para o início ou vice-versa
+            const isWrappingAround = (index >= playlist.length) || (index < 0);
+
             if (index >= playlist.length) {
-                index = 0;
+                newIndex = 0;
             } else if (index < 0) {
-                index = playlist.length - 1;
+                newIndex = playlist.length - 1;
             }
 
             // Lógica para pausar/retomar a mesma faixa
-            if (currentIndex === index) {
+            if (currentIndex === newIndex) {
                 if (isPlaying) {
                     pauseAudio();
                     return;
                 } else if (!isPlaying && currentBuffer && startOffset > 0) {
-                    // Retomar de onde parou
                     playAudio(currentBuffer, startOffset);
                     return;
                 }
@@ -591,11 +577,14 @@
             }
             isPlaying = false;
 
-            currentIndex = index;
+            currentIndex = newIndex; // Atualiza o índice após a validação
             currentTrackNameSpan.textContent = playlist[currentIndex].name;
 
             try {
-                if (!playlist[currentIndex].buffer) {
+                // **NOVA LÓGICA DE CARREGAMENTO DO BUFFER**
+                // Se o buffer não foi carregado, OU se estamos a forçar o recarregamento, OU se estamos a ciclar para o início (índice 0)
+                if (!playlist[currentIndex].buffer || forceReloadBuffer || (isWrappingAround && currentIndex === 0)) {
+                    console.log(`Recarregando buffer para: ${playlist[currentIndex].name} (Force: ${forceReloadBuffer}, WrapAround: ${isWrappingAround && currentIndex === 0})`);
                     initAudioContext();
                     playlist[currentIndex].buffer = await loadAudioFile(playlist[currentIndex].file);
                     playlist[currentIndex].duration = playlist[currentIndex].buffer.duration;
@@ -611,12 +600,16 @@
 
         function playNext() {
             if (playlist.length === 0) return;
-            loadAndPlayTrack((currentIndex + 1));
+            // Se o autoplay está ativo e avançamos da última para a primeira, force o recarregamento
+            const shouldForceReload = isGlobalAutoPlayActive && (currentIndex === playlist.length - 1);
+            loadAndPlayTrack((currentIndex + 1), shouldForceReload);
         }
 
         function playPrev() {
             if (playlist.length === 0) return;
-            loadAndPlayTrack((currentIndex - 1));
+            // Se retrocedemos da primeira para a última, force o recarregamento
+            const shouldForceReload = (currentIndex === 0);
+            loadAndPlayTrack((currentIndex - 1), shouldForceReload);
         }
 
         /**
@@ -631,17 +624,12 @@
             const currentTime = audioContext.currentTime;
             const currentGain = gainNode.gain.value;
 
-            gainNode.gain.cancelScheduledValues(currentTime); // Cancela automações anteriores
+            gainNode.gain.cancelScheduledValues(currentTime);
             gainNode.gain.setValueAtTime(currentGain, currentTime);
             gainNode.gain.linearRampToValueAtTime(0, currentTime + durationSeconds);
 
-            // Programa a parada da música um pouco depois do fade out terminar
-            // Isso é crucial para limpar os recursos após o fade.
             setTimeout(() => {
-                // Chama stopAudio para garantir a limpeza completa e reset de estado
                 stopAudio();
-                // A única coisa diferente aqui é que o nome da faixa já deve estar limpo
-                // pelo stopAudio.
             }, durationSeconds * 1000 + 50);
         }
 
@@ -854,18 +842,16 @@
         });
 
         document.addEventListener('keydown', async (event) => {
-            // Se Ctrl + Espaço for pressionado, faz o fade out
             if (event.ctrlKey && event.code === 'Space') {
                 event.preventDefault();
                 if (isPlaying) {
-                    startFadeOut(3); // Inicia o fade out de 3 segundos
+                    startFadeOut(3);
                 } else {
                     alert("Nenhuma faixa a tocar para aplicar o fade out.");
                 }
                 return;
             }
 
-            // Lógica existente para Space, ArrowRight, ArrowLeft
             if (event.code === 'Space') {
                 event.preventDefault();
 
