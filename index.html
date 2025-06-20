@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Minha Cue List de Áudio</title>
     <style>
-        /* Estilos CSS */
+        /* Estilos CSS para o Tema Escuro */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f0f2f5;
-            color: #333;
+            background-color: #1a1a1a; /* Fundo escuro geral */
+            color: #e0e0e0; /* Texto claro */
             margin: 20px;
             display: flex;
             flex-direction: column;
@@ -17,17 +17,18 @@
         }
 
         .container {
-            background-color: #fff;
+            background-color: #2b2b2b; /* Fundo do container mais escuro */
             padding: 30px;
             border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); /* Sombra mais pronunciada */
             width: 100%;
             max-width: 600px;
             box-sizing: border-box;
+            border: 1px solid #444; /* Borda sutil */
         }
 
         h1 {
-            color: #0056b3;
+            color: #00aaff; /* Azul vibrante para o título */
             text-align: center;
             margin-bottom: 25px;
         }
@@ -39,8 +40,9 @@
             margin-bottom: 20px;
             border: 2px dashed #007bff;
             border-radius: 5px;
-            background-color: #e9f7ff;
+            background-color: #3a3a3a; /* Fundo do input mais escuro */
             cursor: pointer;
+            color: #e0e0e0; /* Texto do input */
         }
 
         input[type="file"]::-webkit-file-upload-button {
@@ -71,19 +73,19 @@
             margin-top: 20px;
             max-height: 300px;
             overflow-y: auto;
-            border: 1px solid #eee;
+            border: 1px solid #444; /* Borda da playlist */
             border-radius: 5px;
-            background-color: #fdfdfd;
+            background-color: #333; /* Fundo da playlist */
         }
 
         #playlist li {
             padding: 12px 15px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid #444; /* Separador de itens */
             display: flex;
             align-items: center;
             justify-content: space-between;
             font-size: 0.95em;
-            color: #555;
+            color: #e0e0e0; /* Cor do texto do item da playlist */
             transition: background-color 0.2s ease;
         }
 
@@ -92,9 +94,9 @@
         }
 
         #playlist li.active {
-            background-color: #e6f7ff;
+            background-color: #004d80; /* Fundo ativo mais escuro */
             font-weight: bold;
-            color: #007bff;
+            color: #ffffff; /* Texto ativo branco */
         }
 
         #playlist li .track-info {
@@ -107,30 +109,31 @@
         #playlist li .track-number {
             margin-right: 10px;
             font-size: 0.8em;
-            color: #888;
+            color: #999; /* Cor do número da faixa */
             min-width: 25px;
             text-align: right;
         }
 
-        .loop-button {
+        .loop-button, .auto-play-button { /* Estilos para ambos os botões adicionais */
             background: none;
-            border: 1px solid #ccc;
+            border: 1px solid #666;
             border-radius: 5px;
             padding: 4px 8px;
             cursor: pointer;
             font-size: 0.8em;
-            color: #666;
+            color: #bbb;
             transition: all 0.2s ease;
             margin-left: 10px;
+            white-space: nowrap; /* Impede que o texto quebre */
         }
 
-        .loop-button:hover {
-            background-color: #f0f0f0;
-            border-color: #999;
+        .loop-button:hover, .auto-play-button:hover {
+            background-color: #444;
+            border-color: #888;
         }
 
         .loop-button.active {
-            background-color: #28a745;
+            background-color: #28a745; /* Verde para loop ativo */
             color: white;
             border-color: #28a745;
         }
@@ -138,6 +141,17 @@
         .loop-button.active:hover {
             background-color: #218838;
             border-color: #218838;
+        }
+
+        .auto-play-button.active {
+            background-color: #ffc107; /* Amarelo/laranja para auto-play ativo */
+            color: #333;
+            border-color: #ffc107;
+        }
+
+        .auto-play-button.active:hover {
+            background-color: #e0a800;
+            border-color: #e0a800;
         }
 
         .controls {
@@ -165,7 +179,7 @@
         }
 
         .controls button#stopButton {
-            background-color: #dc3545;
+            background-color: #dc3545; /* Vermelho para o botão Stop */
         }
 
         .controls button#stopButton:hover {
@@ -173,18 +187,43 @@
         }
 
         .controls button#clearButton {
-            background-color: #6c757d;
+            background-color: #6c757d; /* Cinza para o botão Limpar Playlist */
         }
 
         .controls button#clearButton:hover {
             background-color: #5a6268;
         }
 
+        #globalAutoPlayButton { /* Estilo para o botão de auto-play global */
+            background-color: #17a2b8; /* Azul claro */
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+            min-width: 100px;
+            margin-top: 15px; /* Espaço acima */
+        }
+
+        #globalAutoPlayButton:hover {
+            background-color: #138496;
+        }
+
+        #globalAutoPlayButton.active {
+            background-color: #ffc107; /* Ativo com cor similar ao auto-play da lista */
+            color: #333;
+        }
+        #globalAutoPlayButton.active:hover {
+            background-color: #e0a800;
+        }
+
         .current-track-info {
             margin-top: 20px;
             text-align: center;
             font-size: 1.1em;
-            color: #0056b3;
+            color: #00aaff; /* Cor do título da faixa atual */
             font-weight: bold;
             display: flex;
             flex-direction: column;
@@ -193,13 +232,13 @@
 
         #currentTrackName {
             margin-bottom: 5px;
-            color: #333;
+            color: #e0e0e0; /* Nome da faixa atual */
         }
 
         #playbackProgress {
             width: 80%;
             height: 8px;
-            background-color: #e0e0e0;
+            background-color: #444; /* Fundo da barra de progresso */
             border-radius: 4px;
             overflow: hidden;
             margin-top: 10px;
@@ -208,7 +247,7 @@
         #progressBar {
             height: 100%;
             width: 0%;
-            background-color: #28a745;
+            background-color: #28a745; /* Cor de progresso (verde) */
             border-radius: 4px;
             transition: width 0.1s linear;
         }
@@ -219,7 +258,7 @@
             width: 80%;
             margin-top: 5px;
             font-size: 0.85em;
-            color: #666;
+            color: #999; /* Cor do texto do tempo */
         }
 
     </style>
@@ -252,6 +291,8 @@
             <button id="stopButton">Stop</button>
             <button id="clearButton">Limpar Playlist</button>
         </div>
+
+        <button id="globalAutoPlayButton">Auto-Play: Desativado</button>
     </div>
 
     <script>
@@ -266,18 +307,20 @@
         const progressBar = document.getElementById('progressBar');
         const currentTimeSpan = document.getElementById('currentTime');
         const durationSpan = document.getElementById('duration');
+        const globalAutoPlayButton = document.getElementById('globalAutoPlayButton');
 
         let audioContext;
         let currentSource = null;
         let currentBuffer = null;
-        let playlist = []; // Cada item agora terá { ..., loop: false }
+        let playlist = [];
         let currentIndex = -1;
         let isPlaying = false;
         let startTime = 0;
         let startOffset = 0;
 
         let animationFrameId;
-        let firstSpacePress = true;
+        let firstSpacePress = true; // Controla o primeiro GO (barra de espaço)
+        let isGlobalAutoPlayActive = false; // Estado do botão de auto-play global
 
         // --- Funções Auxiliares ---
         function formatTime(seconds) {
@@ -290,7 +333,6 @@
             if (isPlaying && currentBuffer && audioContext && audioContext.state === 'running') {
                 let elapsed = audioContext.currentTime - startTime;
 
-                // Se a faixa está em loop, simule o tempo "resetando"
                 if (currentSource && currentSource.loop) {
                     elapsed = elapsed % currentBuffer.duration;
                 }
@@ -299,9 +341,7 @@
                 progressBar.style.width = `${progress}%`;
                 currentTimeSpan.textContent = formatTime(elapsed);
 
-                // Garante que o progresso visual chega a 100% no final de uma não-looping ou antes de resetar para o loop
-                // (Esta condição já é coberta pelo currentSource.onended para faixas sem loop, mas serve de fallback)
-                if (elapsed >= currentBuffer.duration && !currentSource.loop) {
+                if (elapsed >= currentBuffer.duration && (!currentSource || !currentSource.loop)) {
                     progressBar.style.width = '100%';
                     currentTimeSpan.textContent = formatTime(currentBuffer.duration);
                 }
@@ -314,7 +354,6 @@
             }
         }
 
-        // Reseta completamente o estado do player e a flag do primeiro space
         function resetPlaybackState() {
             if (currentSource) {
                 currentSource.stop();
@@ -335,26 +374,23 @@
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
             highlightCurrentTrack();
-            firstSpacePress = true; // Reseta a flag do primeiro GO
+            firstSpacePress = true;
         }
 
         // --- Funções de Áudio ---
 
-        // Inicializa o AudioContext, se ainda não estiver ativo
         function initAudioContext() {
             if (!audioContext || audioContext.state === 'closed') {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }
 
-        // Carrega e decodifica um arquivo de áudio. Retorna o AudioBuffer.
         async function loadAudioFile(file) {
             initAudioContext();
             const arrayBuffer = await file.arrayBuffer();
             return await audioContext.decodeAudioData(arrayBuffer);
         }
 
-        // Reproduz um AudioBuffer
         function playAudio(buffer, offset = 0) {
             initAudioContext();
 
@@ -377,10 +413,13 @@
 
             currentSource.onended = () => {
                 // Esta função é chamada quando a faixa termina (se não estiver em loop)
-                if (!currentSource.loop) { // Se não estiver em loop, para e espera
-                    stopAudioAfterCompletion(); // Nova função para parar e esperar
+                if (!currentSource.loop) { // Se não estiver em loop, decide o que fazer
+                    if (isGlobalAutoPlayActive) {
+                        playNext(); // Se auto-play global estiver ativo, avança automaticamente
+                    } else {
+                        stopAudioAfterCompletion(); // Caso contrário, para e espera o GO
+                    }
                 }
-                // Se estiver em loop, onended não é chamado, então nada acontece aqui
             };
 
             currentSource.start(0, offset);
@@ -393,10 +432,7 @@
             audioContext.resume();
         }
 
-        // Nova função para parar a faixa no final (sem avançar)
         function stopAudioAfterCompletion() {
-            // Não chame stopAudio() diretamente para não resetar o currentIndex
-            // Apenas para a reprodução e atualiza o estado visual
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
@@ -407,16 +443,14 @@
             }
             isPlaying = false;
             playPauseButton.textContent = 'Play/Pause';
-            startOffset = 0; // Prepara para começar do início na próxima vez
+            startOffset = 0;
             startTime = 0;
-            currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa'; // Mantém o nome da faixa atual
+            currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
             cancelAnimationFrame(animationFrameId);
-            updateProgressBar(); // Atualiza para mostrar 00:00 e barra vazia
+            updateProgressBar();
             // firstSpacePress permanece false para que o próximo GO avance para a próxima música
         }
 
-
-        // Pausa o áudio
         function pauseAudio() {
             if (currentSource && isPlaying) {
                 currentSource.stop();
@@ -430,7 +464,6 @@
             }
         }
 
-        // Para o áudio completamente e reseta para o início da faixa atual
         function stopAudio() {
             if (currentSource) {
                 currentSource.stop();
@@ -448,22 +481,24 @@
             highlightCurrentTrack();
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
-            firstSpacePress = true; // Resetar a flag do primeiro GO após um stop completo
+            firstSpacePress = true;
         }
 
-        // Carrega e reproduz uma faixa pelo índice
         async function loadAndPlayTrack(index) {
             if (playlist.length === 0) {
                  stopAudio();
                  return;
             }
-            if (index < 0 || index >= playlist.length) {
-                index = 0; // Loop de volta ao início da playlist
+            // Correção para voltar à primeira se tentar avançar da última
+            if (index >= playlist.length) {
+                index = 0;
+            } else if (index < 0) { // Se tentar voltar da primeira, vai para a última
+                index = playlist.length - 1;
             }
 
             currentIndex = index;
             currentTrackNameSpan.textContent = playlist[currentIndex].name;
-            startOffset = 0; // Sempre começa do início ao carregar uma nova faixa
+            startOffset = 0;
 
             try {
                 if (!playlist[currentIndex].buffer) {
@@ -476,30 +511,26 @@
             } catch (error) {
                 console.error("Erro ao carregar ou decodificar áudio:", error);
                 alert("Não foi possível carregar a faixa: " + playlist[currentIndex].name + ". Verifique o formato do arquivo.");
-                // Se der erro ao carregar, não avança automaticamente, apenas para.
-                stopAudioAfterCompletion(); // Parar e esperar um novo GO
+                stopAudioAfterCompletion();
             }
         }
 
-        // playNext para uso manual (botões, seta direita, barra de espaço)
+        // playNext para uso manual (botões, seta direita, barra de espaço) E auto-play global
         function playNext() {
             if (playlist.length === 0) return;
-            // Interrompe qualquer faixa tocando, incluindo loops
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
                 currentSource = null;
             }
-            isPlaying = false; // Define como não tocando para o playNext lidar com isso
+            isPlaying = false;
 
             const nextIndex = (currentIndex + 1) % playlist.length;
             loadAndPlayTrack(nextIndex);
         }
 
-        // playPrev para uso manual
         function playPrev() {
             if (playlist.length === 0) return;
-            // Interrompe qualquer faixa tocando, incluindo loops
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
@@ -567,7 +598,6 @@
                         playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
                         e.target.classList.toggle('active', playlist[indexToToggle].loop);
 
-                        // Se a faixa em questão é a que está a tocar, atualiza o loop do AudioBufferSourceNode
                         if (currentIndex === indexToToggle && currentSource) {
                             currentSource.loop = playlist[indexToToggle].loop;
                         }
@@ -602,10 +632,8 @@
                     await audioContext.resume();
                 }
                 if (!currentBuffer || startOffset === 0) {
-                    // Se não há faixa ou estava parada no início, toca a faixa atual do início
                     await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
                 } else {
-                    // Se estava em pausa, retoma daquele ponto
                     playAudio(currentBuffer, startOffset);
                 }
             }
@@ -613,7 +641,7 @@
 
         prevButton.addEventListener('click', playPrev);
         nextButton.addEventListener('click', playNext);
-        stopButton.addEventListener('click', stopAudio); // Este botão sempre faz um stop "completo"
+        stopButton.addEventListener('click', stopAudio);
 
         clearButton.addEventListener('click', () => {
             if (confirm("Tem certeza que deseja limpar a playlist?")) {
@@ -622,6 +650,14 @@
                 playlistElement.innerHTML = '<li>Nenhum áudio selecionado.</li>';
             }
         });
+
+        // Toggle do botão global de Auto-Play
+        globalAutoPlayButton.addEventListener('click', () => {
+            isGlobalAutoPlayActive = !isGlobalAutoPlayActive;
+            globalAutoPlayButton.classList.toggle('active', isGlobalAutoPlayActive);
+            globalAutoPlayButton.textContent = `Auto-Play: ${isGlobalAutoPlayActive ? 'Ativado' : 'Desativado'}`;
+        });
+
 
         document.addEventListener('keydown', async (event) => {
             if (event.code === 'Space') {
@@ -635,12 +671,10 @@
                 initAudioContext();
 
                 if (firstSpacePress) {
-                    // Primeiro GO: toca a PRIMEIRA música da lista
                     await loadAndPlayTrack(0);
                     firstSpacePress = false;
                 } else {
-                    // Próximos GOs: Para o que está a tocar e avança para a próxima
-                    // Se já estiver tocando, ou se a anterior parou no final, o playNext avançará
+                    // Após o primeiro GO, a barra de espaço sempre avança para a próxima
                     playNext();
                 }
             } else if (event.code === 'ArrowRight') {
