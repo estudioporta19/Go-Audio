@@ -414,26 +414,16 @@
             currentSource.buffer = buffer;
             currentSource.connect(audioContext.destination);
 
-            // A propriedade 'loop' do AudioBufferSourceNode só deve ser ativada
-            // se a faixa tiver o loop individual ativo E o auto-play global estiver DESATIVADO.
-            // Se o auto-play global estiver ATIVADO, o loop individual não afeta o avanço automático.
-            // O loop individual só deve fazer a faixa repetir se ela for a última a ser tocada
-            // ou se o usuário não der o GO.
             currentSource.loop = (playlist[currentIndex] && playlist[currentIndex].loop && !isGlobalAutoPlayActive);
 
-
             currentSource.onended = () => {
-                // Esta função é chamada quando a faixa termina (naturalmente, sem ser parada manualmente)
-                // Se a faixa não está em loop (ou o loop parou, ou não está ativa no currentSource por causa do autoplay)
                 if (!currentSource.loop) {
                     if (isGlobalAutoPlayActive) {
-                        playNext(); // Se auto-play global estiver ativo, avança automaticamente
+                        playNext();
                     } else {
-                        stopAudioAfterCompletion(); // Caso contrário, para e espera o GO
+                        stopAudioAfterCompletion();
                     }
                 }
-                // Se currentSource.loop for true, onended não será chamado aqui.
-                // O controle de avanço para faixas em loop está agora no evento de tecla/botão (playNext/playPrev).
             };
 
             currentSource.start(0, offset);
@@ -509,13 +499,12 @@
             }
 
             // Antes de carregar e tocar a nova faixa, pare a anterior explicitamente
-            // Isso garante que qualquer loop ativo é interrompido.
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
                 currentSource = null;
             }
-            isPlaying = false; // Garante que o estado é redefinido para a nova faixa
+            isPlaying = false;
 
             currentIndex = index;
             currentTrackNameSpan.textContent = playlist[currentIndex].name;
@@ -536,15 +525,14 @@
             }
         }
 
-        // playNext para uso manual (botões, seta direita, barra de espaço) E auto-play global
         function playNext() {
             if (playlist.length === 0) return;
-            loadAndPlayTrack((currentIndex + 1)); // loadAndPlayTrack já lida com o ciclo da playlist
+            loadAndPlayTrack((currentIndex + 1));
         }
 
         function playPrev() {
             if (playlist.length === 0) return;
-            loadAndPlayTrack((currentIndex - 1)); // loadAndPlayTrack já lida com o ciclo da playlist
+            loadAndPlayTrack((currentIndex - 1));
         }
 
         // Função para atualizar os números de ordem das faixas e a classe 'active'
@@ -603,7 +591,6 @@
                 listItem.addEventListener('dragstart', (e) => {
                     draggedItem = listItem;
                     e.dataTransfer.effectAllowed = 'move';
-                    // Usar setTimeout para adicionar a classe 'dragging' permite que o navegador capture a imagem original antes de aplicar a opacidade
                     setTimeout(() => listItem.classList.add('dragging'), 0);
                 });
 
@@ -630,22 +617,19 @@
                         const fromIndex = parseInt(draggedItem.dataset.index);
                         const toIndex = parseInt(listItem.dataset.index);
 
-                        // Mover item na array da playlist
                         const [movedTrack] = playlist.splice(fromIndex, 1);
                         playlist.splice(toIndex, 0, movedTrack);
 
-                        // Se a faixa que estava a tocar foi movida, ou a posição do currentIndex mudou
-                        // precisamos de recalcular o currentIndex para que a faixa ativa continue ativa
                         if (currentIndex === fromIndex) {
-                            currentIndex = toIndex; // A faixa que estava a tocar moveu-se
+                            currentIndex = toIndex;
                         } else if (currentIndex > fromIndex && currentIndex <= toIndex) {
-                            currentIndex--; // Faixa atual moveu-se para baixo
+                            currentIndex--;
                         } else if (currentIndex < fromIndex && currentIndex >= toIndex) {
-                            currentIndex++; // Faixa atual moveu-se para cima
+                            currentIndex++;
                         }
 
-                        updatePlaylistDisplay(); // Re-renderiza a playlist
-                        highlightCurrentTrack(); // Re-aplica o destaque
+                        updatePlaylistDisplay();
+                        highlightCurrentTrack();
                     }
                 });
 
@@ -665,18 +649,27 @@
 
         audioFileInput.addEventListener('change', async (event) => {
             const files = event.target.files;
-            if (files.length === 0) return;
+            if (files.length === 0) {
+                // Se nenhum arquivo foi selecionado (e a playlist está vazia),
+                // garante que a mensagem "Nenhum áudio selecionado." apareça.
+                if (playlist.length === 0) {
+                     updatePlaylistDisplay(); // Chamar para exibir a mensagem inicial
+                }
+                return;
+            }
 
-            // Se a playlist estiver vazia e for o primeiro carregamento, reseta o estado
-            if (playlist.length === 0) {
+            // Se for a primeira carga de arquivos, ou se a playlist estiver vazia,
+            // podemos resetar o estado de reprodução para o início.
+            if (playlist.length === 0 && currentIndex === -1) {
                  resetPlaybackState();
             }
 
             let newFilesAdded = false;
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
+                // Adicionado console.log para depuração do tipo de arquivo
+                console.log(`Processing file: ${file.name}, Type: ${file.type}`);
                 if (file.type.startsWith('audio/')) {
-                    // Verifica se o arquivo já existe na playlist (pelo nome, simples)
                     const exists = playlist.some(track => track.name === file.name);
                     if (!exists) {
                         playlist.push({ name: file.name, file: file, buffer: null, duration: 0, loop: false });
@@ -689,19 +682,19 @@
                 }
             }
 
-            if (newFilesAdded) {
-                // Se era a primeira carga e agora temos músicas, defina o currentIndex
-                if (currentIndex === -1 && playlist.length > 0) {
-                    currentIndex = 0;
-                }
-                updatePlaylistDisplay(); // Atualiza o display da playlist
-                highlightCurrentTrack(); // Garante que o destaque esteja na faixa correta
-                if (currentTrackNameSpan.textContent === 'Nenhuma Faixa' && playlist.length > 0) {
-                    currentTrackNameSpan.textContent = playlist[currentIndex].name;
-                }
-            } else if (playlist.length === 0) {
-                 playlistElement.innerHTML = '<li>Nenhum arquivo de áudio válido selecionado.</li>';
-                 currentTrackNameSpan.textContent = 'Nenhuma Faixa';
+            // **Esta é a mudança crucial:**
+            // Sempre chame updatePlaylistDisplay() depois de tentar adicionar arquivos,
+            // mesmo que newFilesAdded seja false, para garantir que a UI reflita o estado real.
+            updatePlaylistDisplay();
+
+            // Ajusta o currentIndex e currentTrackNameSpan apenas se novos arquivos foram adicionados
+            // e se a playlist estava vazia antes, ou se não havia uma faixa ativa.
+            if (newFilesAdded && currentIndex === -1 && playlist.length > 0) {
+                currentIndex = 0;
+                currentTrackNameSpan.textContent = playlist[0].name;
+            } else if (newFilesAdded && currentTrackNameSpan.textContent === 'Nenhuma Faixa' && playlist.length > 0) {
+                 // Caso a playlist já tivesse conteúdo, mas o display da faixa atual estivesse vazio
+                 currentTrackNameSpan.textContent = playlist[currentIndex !== -1 ? currentIndex : 0].name;
             }
         });
 
@@ -718,10 +711,8 @@
                     await audioContext.resume();
                 }
                 if (!currentBuffer || startOffset === 0) {
-                    // Se não há faixa a tocar ou estava parada no início, toca a faixa atual do início
                     await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
                 } else {
-                    // Se estava em pausa, retoma daquele ponto
                     playAudio(currentBuffer, startOffset);
                 }
             }
@@ -735,7 +726,8 @@
             if (confirm("Tem certeza que deseja limpar a playlist?")) {
                 resetPlaybackState();
                 playlist = [];
-                updatePlaylistDisplay(); // Atualiza para mostrar "Nenhum áudio selecionado"
+                updatePlaylistDisplay();
+                currentTrackNameSpan.textContent = 'Nenhuma Faixa'; // Garante que o texto da faixa atual também limpa
             }
         });
 
@@ -745,12 +737,10 @@
             globalAutoPlayButton.classList.toggle('active', isGlobalAutoPlayActive);
             globalAutoPlayButton.textContent = `Auto-Play: ${isGlobalAutoPlayActive ? 'Ativado' : 'Desativado'}`;
 
-            // Se a música atual está em loop e o auto-play foi ATIVADO, precisamos desligar o loop no currentSource
-            if (isPlaying && currentSource && playlist[currentIndex].loop) {
+            if (isPlaying && currentSource && playlist[currentIndex]) { // Verifica se playlist[currentIndex] existe
                 currentSource.loop = playlist[currentIndex].loop && !isGlobalAutoPlayActive;
             }
         });
-
 
         document.addEventListener('keydown', async (event) => {
             if (event.code === 'Space') {
@@ -767,7 +757,6 @@
                     await loadAndPlayTrack(0);
                     firstSpacePress = false;
                 } else {
-                    // A barra de espaço agora sempre avança para a próxima faixa
                     playNext();
                 }
             } else if (event.code === 'ArrowRight') {
