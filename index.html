@@ -87,6 +87,7 @@
             font-size: 0.95em;
             color: #e0e0e0; /* Cor do texto do item da playlist */
             transition: background-color 0.2s ease;
+            cursor: grab; /* Cursor para indicar que é arrastável */
         }
 
         #playlist li:last-child {
@@ -102,8 +103,8 @@
         #playlist li .track-info {
             display: flex;
             align-items: center;
-            cursor: pointer;
             flex-grow: 1;
+            /* O cursor de play/select será tratado pelo li em si agora, mas mantemos por clareza */
         }
 
         #playlist li .track-number {
@@ -112,6 +113,12 @@
             color: #999; /* Cor do número da faixa */
             min-width: 25px;
             text-align: right;
+        }
+
+        /* Estilo para o item arrastado */
+        #playlist li.dragging {
+            opacity: 0.5;
+            border: 2px dashed #00aaff;
         }
 
         .loop-button, .auto-play-button { /* Estilos para ambos os botões adicionais */
@@ -322,6 +329,9 @@
         let firstSpacePress = true; // Controla o primeiro GO (barra de espaço)
         let isGlobalAutoPlayActive = false; // Estado do botão de auto-play global
 
+        // Variáveis para Drag & Drop
+        let draggedItem = null;
+
         // --- Funções Auxiliares ---
         function formatTime(seconds) {
             const minutes = Math.floor(seconds / 60);
@@ -404,29 +414,26 @@
             currentSource.buffer = buffer;
             currentSource.connect(audioContext.destination);
 
-            // A lógica de loop no currentSource.loop só deve ser ativada
-            // se o auto-play global estiver DESATIVADO.
-            // Se o auto-play estiver ATIVADO, e a faixa tiver loop individual,
-            // o loop individual não deve impedir o avanço automático da playlist.
+            // A propriedade 'loop' do AudioBufferSourceNode só deve ser ativada
+            // se a faixa tiver o loop individual ativo E o auto-play global estiver DESATIVADO.
+            // Se o auto-play global estiver ATIVADO, o loop individual não afeta o avanço automático.
             // O loop individual só deve fazer a faixa repetir se ela for a última a ser tocada
             // ou se o usuário não der o GO.
-            currentSource.loop = (currentIndex !== -1 && playlist[currentIndex] && playlist[currentIndex].loop);
+            currentSource.loop = (playlist[currentIndex] && playlist[currentIndex].loop && !isGlobalAutoPlayActive);
+
 
             currentSource.onended = () => {
-                // Esta função é chamada quando a faixa termina
-                // (seja porque o loop terminou, ou porque não estava em loop)
-                if (currentSource && currentSource.loop) {
-                    // Se a faixa está em loop e terminou (não deveria, a menos que o loop fosse desativado)
-                    // Ou se esta é uma condição de fallback.
-                    // Para o efeito de "loopar mas poder dar GO", esta parte pode ser menos relevante
-                    // pois o GO é que vai interromper.
-                } else { // Se não estava em loop, ou se o loop foi desativado/interrompido
+                // Esta função é chamada quando a faixa termina (naturalmente, sem ser parada manualmente)
+                // Se a faixa não está em loop (ou o loop parou, ou não está ativa no currentSource por causa do autoplay)
+                if (!currentSource.loop) {
                     if (isGlobalAutoPlayActive) {
                         playNext(); // Se auto-play global estiver ativo, avança automaticamente
                     } else {
                         stopAudioAfterCompletion(); // Caso contrário, para e espera o GO
                     }
                 }
+                // Se currentSource.loop for true, onended não será chamado aqui.
+                // O controle de avanço para faixas em loop está agora no evento de tecla/botão (playNext/playPrev).
             };
 
             currentSource.start(0, offset);
@@ -501,6 +508,15 @@
                 index = playlist.length - 1; // Vai para a última se tentar retroceder da primeira
             }
 
+            // Antes de carregar e tocar a nova faixa, pare a anterior explicitamente
+            // Isso garante que qualquer loop ativo é interrompido.
+            if (currentSource) {
+                currentSource.stop();
+                currentSource.disconnect();
+                currentSource = null;
+            }
+            isPlaying = false; // Garante que o estado é redefinido para a nova faixa
+
             currentIndex = index;
             currentTrackNameSpan.textContent = playlist[currentIndex].name;
             startOffset = 0;
@@ -523,42 +539,126 @@
         // playNext para uso manual (botões, seta direita, barra de espaço) E auto-play global
         function playNext() {
             if (playlist.length === 0) return;
-            // SEMPRE pare a faixa atual antes de carregar a próxima
-            if (currentSource) {
-                currentSource.stop();
-                currentSource.disconnect();
-                currentSource = null;
-            }
-            isPlaying = false; // Garante que o estado de reprodução está correto para a próxima faixa
-
-            const nextIndex = (currentIndex + 1) % playlist.length;
-            loadAndPlayTrack(nextIndex);
+            loadAndPlayTrack((currentIndex + 1)); // loadAndPlayTrack já lida com o ciclo da playlist
         }
 
         function playPrev() {
             if (playlist.length === 0) return;
-            // SEMPRE pare a faixa atual antes de carregar a anterior
-            if (currentSource) {
-                currentSource.stop();
-                currentSource.disconnect();
-                currentSource = null;
-            }
-            isPlaying = false;
-
-            const prevIndex = (currentIndex - 1 + playlist.length) % playlist.length;
-            loadAndPlayTrack(prevIndex);
+            loadAndPlayTrack((currentIndex - 1)); // loadAndPlayTrack já lida com o ciclo da playlist
         }
 
-        function highlightCurrentTrack() {
-            const listItems = playlistElement.querySelectorAll('li');
-            listItems.forEach((item, index) => {
-                if (index === currentIndex) {
-                    item.classList.add('active');
-                    item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                } else {
-                    item.classList.remove('active');
-                }
+        // Função para atualizar os números de ordem das faixas e a classe 'active'
+        function updatePlaylistDisplay() {
+            playlistElement.innerHTML = ''; // Limpa a lista existente
+
+            if (playlist.length === 0) {
+                playlistElement.innerHTML = '<li>Nenhum áudio selecionado.</li>';
+                return;
+            }
+
+            playlist.forEach((track, index) => {
+                const listItem = document.createElement('li');
+                listItem.setAttribute('draggable', 'true'); // Tornar arrastável
+                listItem.dataset.index = index; // Adiciona o índice como data attribute
+
+                const trackInfoDiv = document.createElement('div');
+                trackInfoDiv.classList.add('track-info');
+                // O click agora será no listItem inteiro, mas mantemos o trackInfoDiv para organização visual
+                trackInfoDiv.addEventListener('click', (e) => {
+                    // Evita que o clique durante um drag inicie a música
+                    if (e.target.closest('li').classList.contains('dragging')) {
+                        return;
+                    }
+                    loadAndPlayTrack(parseInt(listItem.dataset.index));
+                });
+
+
+                const trackNumberSpan = document.createElement('span');
+                trackNumberSpan.classList.add('track-number');
+                trackNumberSpan.textContent = `${index + 1}.`; // Número da faixa (começando em 1)
+                trackInfoDiv.appendChild(trackNumberSpan);
+                trackInfoDiv.appendChild(document.createTextNode(track.name));
+
+                listItem.appendChild(trackInfoDiv);
+
+                const loopButton = document.createElement('button');
+                loopButton.classList.add('loop-button');
+                loopButton.textContent = 'Loop';
+                loopButton.dataset.index = index; // Armazena o índice atual
+                loopButton.classList.toggle('active', track.loop); // Define o estado visual do botão
+                loopButton.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Previne que o clique no botão ative a faixa
+                    const indexToToggle = parseInt(e.target.dataset.index);
+                    playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
+                    e.target.classList.toggle('active', playlist[indexToToggle].loop);
+
+                    // Se a faixa em questão é a que está a tocar, atualiza o loop do AudioBufferSourceNode
+                    if (currentIndex === indexToToggle && currentSource) {
+                        currentSource.loop = playlist[indexToToggle].loop && !isGlobalAutoPlayActive;
+                    }
+                });
+                listItem.appendChild(loopButton);
+
+                // Eventos de Drag & Drop
+                listItem.addEventListener('dragstart', (e) => {
+                    draggedItem = listItem;
+                    e.dataTransfer.effectAllowed = 'move';
+                    // Usar setTimeout para adicionar a classe 'dragging' permite que o navegador capture a imagem original antes de aplicar a opacidade
+                    setTimeout(() => listItem.classList.add('dragging'), 0);
+                });
+
+                listItem.addEventListener('dragenter', (e) => {
+                    e.preventDefault(); // Necessário para permitir o drop
+                    if (listItem !== draggedItem) {
+                        listItem.classList.add('drag-over'); // Adiciona um estilo visual para a posição de drop
+                    }
+                });
+
+                listItem.addEventListener('dragleave', () => {
+                    listItem.classList.remove('drag-over');
+                });
+
+                listItem.addEventListener('dragover', (e) => {
+                    e.preventDefault(); // Necessário para permitir o drop
+                });
+
+                listItem.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    listItem.classList.remove('drag-over');
+
+                    if (draggedItem && draggedItem !== listItem) {
+                        const fromIndex = parseInt(draggedItem.dataset.index);
+                        const toIndex = parseInt(listItem.dataset.index);
+
+                        // Mover item na array da playlist
+                        const [movedTrack] = playlist.splice(fromIndex, 1);
+                        playlist.splice(toIndex, 0, movedTrack);
+
+                        // Se a faixa que estava a tocar foi movida, ou a posição do currentIndex mudou
+                        // precisamos de recalcular o currentIndex para que a faixa ativa continue ativa
+                        if (currentIndex === fromIndex) {
+                            currentIndex = toIndex; // A faixa que estava a tocar moveu-se
+                        } else if (currentIndex > fromIndex && currentIndex <= toIndex) {
+                            currentIndex--; // Faixa atual moveu-se para baixo
+                        } else if (currentIndex < fromIndex && currentIndex >= toIndex) {
+                            currentIndex++; // Faixa atual moveu-se para cima
+                        }
+
+                        updatePlaylistDisplay(); // Re-renderiza a playlist
+                        highlightCurrentTrack(); // Re-aplica o destaque
+                    }
+                });
+
+                listItem.addEventListener('dragend', () => {
+                    draggedItem.classList.remove('dragging');
+                    draggedItem = null;
+                    document.querySelectorAll('.drag-over').forEach(item => item.classList.remove('drag-over'));
+                });
+
+                playlistElement.appendChild(listItem);
             });
+
+            highlightCurrentTrack(); // Garante que a faixa atual esteja destacada
         }
 
         // --- Event Listeners ---
@@ -567,66 +667,41 @@
             const files = event.target.files;
             if (files.length === 0) return;
 
-            resetPlaybackState();
-            playlist = [];
-            playlistElement.innerHTML = '';
+            // Se a playlist estiver vazia e for o primeiro carregamento, reseta o estado
+            if (playlist.length === 0) {
+                 resetPlaybackState();
+            }
 
-            let hasAudioFiles = false;
+            let newFilesAdded = false;
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
                 if (file.type.startsWith('audio/')) {
-                    hasAudioFiles = true;
-                    playlist.push({ name: file.name, file: file, buffer: null, duration: 0, loop: false });
-
-                    const listItem = document.createElement('li');
-
-                    const trackInfoDiv = document.createElement('div');
-                    trackInfoDiv.classList.add('track-info');
-                    trackInfoDiv.dataset.index = playlist.length - 1;
-                    trackInfoDiv.addEventListener('click', () => {
-                        loadAndPlayTrack(parseInt(trackInfoDiv.dataset.index));
-                    });
-
-                    const trackNumberSpan = document.createElement('span');
-                    trackNumberSpan.classList.add('track-number');
-                    trackNumberSpan.textContent = `${playlist.length}.`;
-                    trackInfoDiv.appendChild(trackNumberSpan);
-                    trackInfoDiv.appendChild(document.createTextNode(file.name));
-
-                    listItem.appendChild(trackInfoDiv);
-
-                    const loopButton = document.createElement('button');
-                    loopButton.classList.add('loop-button');
-                    loopButton.textContent = 'Loop';
-                    loopButton.dataset.index = playlist.length - 1;
-                    loopButton.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const indexToToggle = parseInt(e.target.dataset.index);
-                        playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
-                        e.target.classList.toggle('active', playlist[indexToToggle].loop);
-
-                        // Se a faixa em questão é a que está a tocar, atualiza o loop do AudioBufferSourceNode
-                        if (currentIndex === indexToToggle && currentSource) {
-                            currentSource.loop = playlist[indexToToggle].loop;
-                            // Se desativar o loop, e estiver a tocar, pode ser necessário reiniciar para que onended funcione
-                            // ou garantir que o onended seja disparado ao final da repetição atual.
-                            // Neste caso, o "GO" vai sempre prevalecer, então a interrupção manual é a principal.
-                        }
-                    });
-                    listItem.appendChild(loopButton);
-
-                    playlistElement.appendChild(listItem);
+                    // Verifica se o arquivo já existe na playlist (pelo nome, simples)
+                    const exists = playlist.some(track => track.name === file.name);
+                    if (!exists) {
+                        playlist.push({ name: file.name, file: file, buffer: null, duration: 0, loop: false });
+                        newFilesAdded = true;
+                    } else {
+                        console.warn(`Arquivo "${file.name}" já existe na playlist e foi ignorado.`);
+                    }
                 } else {
                     console.warn(`Arquivo ignorado (não é áudio): ${file.name}`);
                 }
             }
 
-            if (!hasAudioFiles) {
-                playlistElement.innerHTML = '<li>Nenhum arquivo de áudio válido selecionado.</li>';
-            } else {
-                 currentIndex = 0;
-                 highlightCurrentTrack();
-                 currentTrackNameSpan.textContent = playlist[0].name;
+            if (newFilesAdded) {
+                // Se era a primeira carga e agora temos músicas, defina o currentIndex
+                if (currentIndex === -1 && playlist.length > 0) {
+                    currentIndex = 0;
+                }
+                updatePlaylistDisplay(); // Atualiza o display da playlist
+                highlightCurrentTrack(); // Garante que o destaque esteja na faixa correta
+                if (currentTrackNameSpan.textContent === 'Nenhuma Faixa' && playlist.length > 0) {
+                    currentTrackNameSpan.textContent = playlist[currentIndex].name;
+                }
+            } else if (playlist.length === 0) {
+                 playlistElement.innerHTML = '<li>Nenhum arquivo de áudio válido selecionado.</li>';
+                 currentTrackNameSpan.textContent = 'Nenhuma Faixa';
             }
         });
 
@@ -643,8 +718,10 @@
                     await audioContext.resume();
                 }
                 if (!currentBuffer || startOffset === 0) {
+                    // Se não há faixa a tocar ou estava parada no início, toca a faixa atual do início
                     await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
                 } else {
+                    // Se estava em pausa, retoma daquele ponto
                     playAudio(currentBuffer, startOffset);
                 }
             }
@@ -658,7 +735,7 @@
             if (confirm("Tem certeza que deseja limpar a playlist?")) {
                 resetPlaybackState();
                 playlist = [];
-                playlistElement.innerHTML = '<li>Nenhum áudio selecionado.</li>';
+                updatePlaylistDisplay(); // Atualiza para mostrar "Nenhum áudio selecionado"
             }
         });
 
@@ -667,6 +744,11 @@
             isGlobalAutoPlayActive = !isGlobalAutoPlayActive;
             globalAutoPlayButton.classList.toggle('active', isGlobalAutoPlayActive);
             globalAutoPlayButton.textContent = `Auto-Play: ${isGlobalAutoPlayActive ? 'Ativado' : 'Desativado'}`;
+
+            // Se a música atual está em loop e o auto-play foi ATIVADO, precisamos desligar o loop no currentSource
+            if (isPlaying && currentSource && playlist[currentIndex].loop) {
+                currentSource.loop = playlist[currentIndex].loop && !isGlobalAutoPlayActive;
+            }
         });
 
 
@@ -682,12 +764,10 @@
                 initAudioContext();
 
                 if (firstSpacePress) {
-                    // O primeiro GO SEMPRE toca a primeira música da lista
                     await loadAndPlayTrack(0);
                     firstSpacePress = false;
                 } else {
-                    // Próximos GOs SEMPRE avançam para a próxima faixa
-                    // Independentemente de estar em loop ou não.
+                    // A barra de espaço agora sempre avança para a próxima faixa
                     playNext();
                 }
             } else if (event.code === 'ArrowRight') {
@@ -697,7 +777,8 @@
             }
         });
 
-        playlistElement.innerHTML = '<li>Selecione arquivos de áudio para começar.</li>';
+        // Inicialização da exibição da playlist
+        updatePlaylistDisplay();
 
     </script>
 </body>
