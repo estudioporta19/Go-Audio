@@ -315,13 +315,14 @@
         const globalAutoPlayButton = document.getElementById('globalAutoPlayButton');
 
         let audioContext;
-        let currentSource = null; // Agora, esta será a *instância* do AudioBufferSourceNode atual
-        let currentBuffer = null; // O AudioBuffer da faixa atual
+        let currentSource = null;
+        let currentBuffer = null;
+        let gainNode = null; // **NOVO**: Nó de ganho para controle de volume
         let playlist = [];
         let currentIndex = -1;
         let isPlaying = false;
-        let startTime = 0; // Tempo do AudioContext quando a reprodução atual começou
-        let startOffset = 0; // Posição de início dentro do buffer (para pausar/retomar)
+        let startTime = 0;
+        let startOffset = 0;
 
         let animationFrameId;
         let firstSpacePress = true;
@@ -340,7 +341,6 @@
             if (isPlaying && currentBuffer && audioContext && audioContext.state === 'running') {
                 let elapsed = audioContext.currentTime - startTime;
 
-                // Se a faixa está em loop, o tempo decorrido deve ciclar
                 if (currentSource && currentSource.loop) {
                     elapsed = elapsed % currentBuffer.duration;
                 }
@@ -349,7 +349,6 @@
                 progressBar.style.width = `${progress}%`;
                 currentTimeSpan.textContent = formatTime(elapsed);
 
-                // Quando a faixa termina naturalmente (sem loop), garante que o progresso é 100% e o tempo total é exibido
                 if (elapsed >= currentBuffer.duration && (!currentSource || !currentSource.loop)) {
                     progressBar.style.width = '100%';
                     currentTimeSpan.textContent = formatTime(currentBuffer.duration);
@@ -367,10 +366,14 @@
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
-                currentSource = null; // Limpa a referência ao nó da fonte de áudio
+                currentSource = null;
+            }
+            if (gainNode) { // Limpar o nó de ganho também
+                gainNode.disconnect();
+                gainNode = null;
             }
             if (audioContext && audioContext.state === 'running') {
-                audioContext.suspend(); // Suspende para libertar recursos de áudio
+                audioContext.suspend();
             }
             isPlaying = false;
             playPauseButton.textContent = 'Play/Pause';
@@ -391,61 +394,62 @@
             if (!audioContext || audioContext.state === 'closed') {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
-            // Garante que o contexto está a correr (não suspenso)
             if (audioContext.state === 'suspended') {
                 audioContext.resume().catch(e => console.error("Erro ao resumir AudioContext:", e));
             }
         }
 
         async function loadAudioFile(file) {
-            initAudioContext(); // Garante o contexto ativo antes de decodificar
+            initAudioContext();
             const arrayBuffer = await file.arrayBuffer();
             return await audioContext.decodeAudioData(arrayBuffer);
         }
 
         /**
          * Reproduz um AudioBuffer a partir de um determinado offset.
-         * Sempre cria um *novo* AudioBufferSourceNode.
+         * Sempre cria um *novo* AudioBufferSourceNode e um GainNode.
          * @param {AudioBuffer} buffer O buffer de áudio a ser reproduzido.
          * @param {number} offset A posição (em segundos) de onde iniciar a reprodução.
          */
         function playAudio(buffer, offset = 0) {
-            initAudioContext(); // Garante o contexto ativo
+            initAudioContext();
 
-            // **IMPORTANTE:** Destrói a fonte anterior antes de criar uma nova
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
                 currentSource = null;
             }
+            if (gainNode) { // Desconectar o nó de ganho anterior também
+                gainNode.disconnect();
+                gainNode = null;
+            }
 
-            currentSource = audioContext.createBufferSource(); // Cria um NOVO AudioBufferSourceNode
+            currentSource = audioContext.createBufferSource();
             currentSource.buffer = buffer;
-            currentSource.connect(audioContext.destination);
 
-            // Define o loop com base no estado da faixa e auto-play global
+            gainNode = audioContext.createGain(); // **NOVO**: Cria um GainNode
+            currentSource.connect(gainNode);      // Conecta a fonte ao nó de ganho
+            gainNode.connect(audioContext.destination); // Conecta o nó de ganho ao destino
+
+            // Garante que o volume inicial é 1 (volume normal)
+            gainNode.gain.setValueAtTime(1, audioContext.currentTime);
+
             currentSource.loop = (playlist[currentIndex] && playlist[currentIndex].loop && !isGlobalAutoPlayActive);
 
             currentSource.onended = () => {
-                // Verificação de segurança: só processa se a fonte ainda existir
-                // e se não foi parada manualmente por outro evento (ex: playNext)
-                if (currentSource && !currentSource.loop) { // Se não estiver em loop, processa o fim
+                if (currentSource && !currentSource.loop) {
                     if (isGlobalAutoPlayActive) {
                         playNext();
                     } else {
                         stopAudioAfterCompletion();
                     }
                 }
-                // Limpa o source APÓS o evento onended ser processado
-                // (e APENAS se não estiver em loop, para evitar que uma fonte em loop se anule)
                 if (currentSource && !currentSource.loop) {
                     currentSource = null;
                 }
-                // Se a faixa está em loop, o onended não será chamado, então não precisamos anular o currentSource aqui.
-                // Ele será anulado quando uma nova faixa for selecionada/avançada.
             };
 
-            currentSource.start(0, offset); // Inicia a reprodução
+            currentSource.start(0, offset);
             startTime = audioContext.currentTime - offset;
             isPlaying = true;
             playPauseButton.textContent = 'Pause';
@@ -456,27 +460,30 @@
         }
 
         function stopAudioAfterCompletion() {
-            // Chamado quando uma faixa sem loop termina naturalmente
-            // Se o auto-play global estiver ativo, não suspende o contexto, deixa para o playNext
+            if (currentSource) { // Garante que o source existe antes de parar
+                currentSource.stop();
+                currentSource.disconnect();
+                currentSource = null;
+            }
+            if (gainNode) { // Limpar o ganho também
+                gainNode.disconnect();
+                gainNode = null;
+            }
             if (audioContext && audioContext.state === 'running' && !isGlobalAutoPlayActive) {
                  audioContext.suspend();
             }
             isPlaying = false;
             playPauseButton.textContent = 'Play/Pause';
-            // Atualiza o nome da faixa apenas se não houver auto-play ativo
             if (!isGlobalAutoPlayActive) {
                 currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
             }
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
-            // currentSource já deveria ser null aqui pelo onended, mas para garantir:
-            currentSource = null;
         }
 
         function pauseAudio() {
             if (currentSource && isPlaying) {
-                currentSource.stop(); // Para a reprodução atual
-                // Calcula o offset para retomar do ponto exato
+                currentSource.stop();
                 startOffset = (audioContext.currentTime - startTime) % currentBuffer.duration;
                 isPlaying = false;
                 playPauseButton.textContent = 'Play/Pause';
@@ -484,7 +491,12 @@
                     audioContext.suspend();
                 }
                 cancelAnimationFrame(animationFrameId);
-                currentSource = null; // Destrói a instância para poder criar uma nova ao retomar
+                // currentSource = null; // Não definir null aqui para que o resume possa usar o buffer, mas sim para que playAudio crie um novo
+                if (gainNode) { // Desconectar o nó de ganho
+                    gainNode.disconnect();
+                    gainNode = null;
+                }
+                currentSource = null; // Reiniciar o source para que um novo seja criado no playAudio
             }
         }
 
@@ -492,20 +504,24 @@
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
-                currentSource = null; // Garante que a referência é limpa
+                currentSource = null;
+            }
+            if (gainNode) { // Limpar o nó de ganho também
+                gainNode.disconnect();
+                gainNode = null;
             }
             if (audioContext && audioContext.state === 'running') {
                  audioContext.suspend();
             }
             isPlaying = false;
             playPauseButton.textContent = 'Play/Pause';
-            startOffset = 0; // Resetar offset para começar do zero
+            startOffset = 0;
             startTime = 0;
             currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
             highlightCurrentTrack();
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
-            firstSpacePress = true; // Permite que a barra de espaço inicie do zero novamente
+            firstSpacePress = true;
         }
 
         /**
@@ -519,51 +535,53 @@
                  return;
             }
 
-            // Lógica para ciclar a playlist (último -> primeiro, primeiro -> último)
             if (index >= playlist.length) {
                 index = 0;
             } else if (index < 0) {
                 index = playlist.length - 1;
             }
 
-            // Se for a mesma faixa e já estiver a tocar, pausa/retoma
-            // Se está pausada, retomamos. Se está a tocar, pausamos.
-            if (currentIndex === index && isPlaying) {
-                pauseAudio();
-                return;
-            } else if (currentIndex === index && !isPlaying && currentBuffer && startOffset > 0) {
-                // Se é a mesma faixa, está pausada e tem offset (não está no início)
-                playAudio(currentBuffer, startOffset);
-                return;
+            // Lógica para pausar/retomar a mesma faixa
+            if (currentIndex === index) {
+                if (isPlaying) {
+                    pauseAudio();
+                    return;
+                } else if (!isPlaying && currentBuffer && startOffset > 0) {
+                    // Retomar de onde parou
+                    playAudio(currentBuffer, startOffset);
+                    return;
+                }
             }
-
-            // Reinicia o offset para 0 quando uma nova faixa é selecionada/avançada
+            
+            // Se chegou aqui, é uma nova faixa ou a faixa atual do início.
             startOffset = 0;
 
-            // Para qualquer faixa que esteja a tocar atualmente
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
-                currentSource = null; // **CRUCIAL:** Limpa a referência da fonte antiga
+                currentSource = null;
             }
-            isPlaying = false; // Define o estado para 'não a tocar' antes de começar a nova
+            if (gainNode) { // Limpar o ganho anterior
+                gainNode.disconnect();
+                gainNode = null;
+            }
+            isPlaying = false;
 
-            currentIndex = index; // Atualiza o índice da faixa atual
-            currentTrackNameSpan.textContent = playlist[currentIndex].name; // Atualiza o nome exibido
+            currentIndex = index;
+            currentTrackNameSpan.textContent = playlist[currentIndex].name;
 
             try {
-                // Se o AudioBuffer para esta faixa ainda não foi decodificado, decodifica agora
                 if (!playlist[currentIndex].buffer) {
                     initAudioContext();
                     playlist[currentIndex].buffer = await loadAudioFile(playlist[currentIndex].file);
                     playlist[currentIndex].duration = playlist[currentIndex].buffer.duration;
                 }
-                currentBuffer = playlist[currentIndex].buffer; // Define o buffer atual
-                playAudio(currentBuffer, startOffset); // Inicia a reprodução (do offset 0, por ser nova faixa)
+                currentBuffer = playlist[currentIndex].buffer;
+                playAudio(currentBuffer, startOffset);
             } catch (error) {
                 console.error("Erro ao carregar ou decodificar áudio:", error);
                 alert("Não foi possível carregar a faixa: " + playlist[currentIndex].name + ". Verifique o formato do arquivo.");
-                stopAudio(); // Parar completamente se houver erro
+                stopAudio();
             }
         }
 
@@ -575,6 +593,45 @@
         function playPrev() {
             if (playlist.length === 0) return;
             loadAndPlayTrack((currentIndex - 1));
+        }
+
+        /**
+         * Inicia um efeito de fade out na faixa atual e a para no final.
+         * @param {number} durationSeconds A duração do fade out em segundos.
+         */
+        function startFadeOut(durationSeconds) {
+            if (!isPlaying || !gainNode || !audioContext) {
+                return; // Não há nada a tocar ou sem nó de ganho para aplicar o fade
+            }
+
+            const currentTime = audioContext.currentTime;
+            const currentGain = gainNode.gain.value;
+
+            // Define o valor inicial do ganho (onde está agora)
+            gainNode.gain.setValueAtTime(currentGain, currentTime);
+            // Reduz o ganho linearmente para 0 ao longo da duração especificada
+            gainNode.gain.linearRampToValueAtTime(0, currentTime + durationSeconds);
+
+            // Programa a parada da música um pouco depois do fade out terminar
+            // Isso é crucial para limpar os recursos após o fade.
+            setTimeout(() => {
+                if (currentSource) {
+                    currentSource.stop();
+                    currentSource.disconnect();
+                    currentSource = null;
+                }
+                if (gainNode) {
+                    gainNode.disconnect();
+                    gainNode = null;
+                }
+                isPlaying = false;
+                playPauseButton.textContent = 'Play/Pause';
+                currentTrackNameSpan.textContent = 'Nenhuma Faixa'; // Ou o nome da faixa anterior se quiser
+                cancelAnimationFrame(animationFrameId);
+                updateProgressBar();
+                startOffset = 0; // Resetar o offset para a próxima reprodução
+                highlightCurrentTrack(); // Remover o destaque da faixa atual
+            }, durationSeconds * 1000 + 50); // Adiciona um pequeno atraso para garantir que o fade terminou
         }
 
         function updatePlaylistDisplay() {
@@ -609,14 +666,12 @@
                 loopButton.dataset.index = index;
                 loopButton.classList.toggle('active', track.loop);
                 loopButton.addEventListener('click', (e) => {
-                    e.stopPropagation(); // Impede que o clique no botão ative a faixa
+                    e.stopPropagation();
                     const indexToToggle = parseInt(e.target.dataset.index);
                     if (playlist[indexToToggle]) {
                          playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
                          e.target.classList.toggle('active', playlist[indexToToggle].loop);
 
-                         // Se a faixa em questão é a que está a tocar, atualiza o loop do AudioBufferSourceNode
-                         // Isso é importante se o botão de loop for clicado enquanto a faixa está a reproduzir.
                          if (currentIndex === indexToToggle && currentSource) {
                              currentSource.loop = playlist[indexToToggle].loop && !isGlobalAutoPlayActive;
                          }
@@ -624,10 +679,7 @@
                 });
                 listItem.appendChild(loopButton);
 
-                // Evento de clique para tocar/pausar a faixa
                 listItem.addEventListener('click', (e) => {
-                    // Impede que o clique seja processado como um play se estiver a arrastar
-                    // ou se clicou no botão de loop.
                     if (e.target.closest('li').classList.contains('dragging') || e.target.closest('.loop-button')) {
                         return;
                     }
@@ -635,7 +687,6 @@
                 });
 
 
-                // Eventos de Drag & Drop
                 listItem.addEventListener('dragstart', (e) => {
                     draggedItem = listItem;
                     e.dataTransfer.effectAllowed = 'move';
@@ -755,14 +806,11 @@
                 alert("Por favor, selecione arquivos de áudio primeiro.");
                 return;
             }
-            initAudioContext(); // Garante que o contexto está ativo
+            initAudioContext();
 
             if (isPlaying) {
                 pauseAudio();
             } else {
-                // Se não está a tocar, tenta reproduzir.
-                // Isso cobre o início da reprodução e o retomar de uma pausa.
-                // loadAndPlayTrack já lida com a lógica de retomar de um offset.
                 await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
             }
         });
@@ -775,7 +823,6 @@
             if (confirm("Tem certeza que deseja limpar a playlist?")) {
                 resetPlaybackState();
                 playlist = [];
-                // Fechar o AudioContext APENAS quando a playlist é limpa totalmente
                 if (audioContext) {
                     audioContext.close().catch(e => console.error("Erro ao fechar AudioContext:", e));
                     audioContext = null;
@@ -796,6 +843,18 @@
         });
 
         document.addEventListener('keydown', async (event) => {
+            // Se Ctrl + Espaço for pressionado, faz o fade out
+            if (event.ctrlKey && event.code === 'Space') {
+                event.preventDefault(); // Impede o comportamento padrão da barra de espaço
+                if (isPlaying) {
+                    startFadeOut(3); // Inicia o fade out de 3 segundos
+                } else {
+                    alert("Nenhuma faixa a tocar para aplicar o fade out.");
+                }
+                return; // Importante para não processar como um 'playNext'
+            }
+
+            // Lógica existente para Space, ArrowRight, ArrowLeft
             if (event.code === 'Space') {
                 event.preventDefault();
 
@@ -807,11 +866,9 @@
                 initAudioContext();
 
                 if (firstSpacePress) {
-                    // Na primeira barra de espaço, toca a primeira faixa
                     await loadAndPlayTrack(0);
                     firstSpacePress = false;
                 } else {
-                    // Nas barras de espaço seguintes, avança para a próxima
                     playNext();
                 }
             } else if (event.code === 'ArrowRight') {
@@ -823,7 +880,6 @@
 
         // Inicialização da exibição da playlist ao carregar a página
         updatePlaylistDisplay();
-
     </script>
 </body>
 </html>
