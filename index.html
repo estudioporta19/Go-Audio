@@ -310,8 +310,8 @@
         const clearButton = document.getElementById('clearButton');
         const currentTrackNameSpan = document.getElementById('currentTrackName');
         const progressBar = document.getElementById('progressBar');
-        const currentTimeSpan = document.getElementById('currentTime'); // CORRIGIDO AQUI
-        const durationSpan = document.getElementById('duration');       // E AQUI
+        const currentTimeSpan = document.getElementById('currentTime');
+        const durationSpan = document.getElementById('duration');
         const globalAutoPlayButton = document.getElementById('globalAutoPlayButton');
 
         let audioContext;
@@ -325,7 +325,7 @@
         let startOffset = 0;
 
         let animationFrameId;
-        let firstSpacePress = true;
+        let firstSpacePress = true; // Controla o comportamento da primeira barra de espaço
         let isGlobalAutoPlayActive = false;
 
         // --- Funções Auxiliares ---
@@ -380,14 +380,14 @@
             isPlaying = false;
             playPauseButton.textContent = 'Play/Pause';
             currentTrackNameSpan.textContent = 'Nenhuma Faixa';
-            currentIndex = -1;
+            currentIndex = -1; // Redefine o índice para -1 ao limpar tudo
             currentBuffer = null;
             startOffset = 0;
             startTime = 0;
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
             highlightCurrentTrack();
-            firstSpacePress = true;
+            firstSpacePress = true; // AQUI: Garante que a primeira barra de espaço volte ao comportamento inicial
             console.log("resetPlaybackState: Limpeza concluída.");
         }
 
@@ -511,6 +511,7 @@
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
             startOffset = 0;
+            firstSpacePress = true; // AQUI: Resetar para o caso de parar no meio da lista.
             console.log("stopAudioAfterCompletion: Limpeza concluída.");
         }
 
@@ -559,7 +560,7 @@
             highlightCurrentTrack();
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
-            firstSpacePress = true;
+            firstSpacePress = true; // AQUI: Redefine para que a próxima barra de espaço inicie a primeira música ou a música atual se for pausa.
             console.log("stopAudio: Reprodução parada e estado resetado.");
         }
 
@@ -619,8 +620,7 @@
             console.log(`loadAndPlayTrack: Nova faixa selecionada: ${playlist[currentIndex].name} (Índice: ${currentIndex})`);
 
             try {
-                // **ATENÇÃO: FORÇA O RECARREGAMENTO DO BUFFER SEMPRE**
-                // ISSO É PARA TESTE E DIAGNÓSTICO. PODE AFETAR A PERFORMANCE.
+                // Forçando recarregamento do buffer sempre
                 console.log(`loadAndPlayTrack: Forçando recarregamento do buffer para ${playlist[currentIndex].name} (Índice: ${currentIndex}).`);
                 playlist[currentIndex].buffer = await loadAudioFile(playlist[currentIndex].file);
                 playlist[currentIndex].duration = playlist[currentIndex].buffer.duration;
@@ -674,6 +674,7 @@
             setTimeout(() => {
                 console.log("startFadeOut: Fade out concluído. Chamando stopAudio.");
                 stopAudio();
+                firstSpacePress = false; // AQUI: Garante que depois do fade out e stop, a barra de espaço avance.
             }, durationSeconds * 1000 + 50);
         }
 
@@ -770,7 +771,6 @@
                 if (file.type.startsWith('audio/')) {
                     const exists = playlist.some(track => track.name === file.name);
                     if (!exists) {
-                        // Importante: Definir buffer como null aqui
                         playlist.push({ name: file.name, file: file, buffer: null, duration: 0, loop: false });
                         newFilesAdded = true;
                     } else {
@@ -845,6 +845,7 @@
                 event.preventDefault();
                 if (isPlaying) {
                     startFadeOut(3);
+                    // Não redefinimos firstSpacePress AQUI, mas sim na função stopAudio/stopAudioAfterCompletion
                 } else {
                     alert("Nenhuma faixa a tocar para aplicar o fade out.");
                 }
@@ -861,10 +862,15 @@
 
                 initAudioContext();
 
-                if (firstSpacePress) {
-                    console.log("keydown: Primeira barra de espaço. Tocando primeira faixa.");
-                    await loadAndPlayTrack(0);
-                    firstSpacePress = false;
+                // Se firstSpacePress for true, significa que é o primeiro play
+                // Ou que uma pausa completa/stop/fade out foi feita, redefinindo o estado.
+                // Se o currentIndex for -1, sempre deve começar da primeira faixa.
+                if (firstSpacePress || currentIndex === -1) {
+                    console.log("keydown: Primeira barra de espaço ou estado resetado. Tocando primeira faixa ou a atual se foi uma pausa.");
+                    // Se o currentIndex for -1 (playlist vazia ou resetada), começa do 0.
+                    // Se não, tenta tocar a faixa atual (útil após um pause que não zerou o currentIndex)
+                    await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
+                    firstSpacePress = false; // Define como false após o primeiro acionamento
                 } else {
                     console.log("keydown: Barra de espaço. Tocando próxima faixa.");
                     playNext();
