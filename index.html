@@ -301,7 +301,7 @@
     </div>
 
     <script>
-const audioFileInput = document.getElementById('audioFileInput');
+        const audioFileInput = document.getElementById('audioFileInput');
         const playlistElement = document.getElementById('playlist');
         const playPauseButton = document.getElementById('playPauseButton');
         const prevButton = document.getElementById('prevButton');
@@ -310,8 +310,8 @@ const audioFileInput = document.getElementById('audioFileInput');
         const clearButton = document.getElementById('clearButton');
         const currentTrackNameSpan = document.getElementById('currentTrackName');
         const progressBar = document.getElementById('progressBar');
-        const currentTimeSpan = document('currentTime');
-        const durationSpan = document.getElementById('duration');
+        const currentTimeSpan = document.getElementById('currentTime'); // CORRIGIDO AQUI
+        const durationSpan = document.getElementById('duration');       // E AQUI
         const globalAutoPlayButton = document.getElementById('globalAutoPlayButton');
 
         let audioContext;
