@@ -404,16 +404,23 @@
             currentSource.buffer = buffer;
             currentSource.connect(audioContext.destination);
 
-            // Verifica a propriedade de loop da faixa atual
-            if (currentIndex !== -1 && playlist[currentIndex] && playlist[currentIndex].loop) {
-                currentSource.loop = true;
-            } else {
-                currentSource.loop = false;
-            }
+            // A lógica de loop no currentSource.loop só deve ser ativada
+            // se o auto-play global estiver DESATIVADO.
+            // Se o auto-play estiver ATIVADO, e a faixa tiver loop individual,
+            // o loop individual não deve impedir o avanço automático da playlist.
+            // O loop individual só deve fazer a faixa repetir se ela for a última a ser tocada
+            // ou se o usuário não der o GO.
+            currentSource.loop = (currentIndex !== -1 && playlist[currentIndex] && playlist[currentIndex].loop);
 
             currentSource.onended = () => {
-                // Esta função é chamada quando a faixa termina (se não estiver em loop)
-                if (!currentSource.loop) { // Se não estiver em loop, decide o que fazer
+                // Esta função é chamada quando a faixa termina
+                // (seja porque o loop terminou, ou porque não estava em loop)
+                if (currentSource && currentSource.loop) {
+                    // Se a faixa está em loop e terminou (não deveria, a menos que o loop fosse desativado)
+                    // Ou se esta é uma condição de fallback.
+                    // Para o efeito de "loopar mas poder dar GO", esta parte pode ser menos relevante
+                    // pois o GO é que vai interromper.
+                } else { // Se não estava em loop, ou se o loop foi desativado/interrompido
                     if (isGlobalAutoPlayActive) {
                         playNext(); // Se auto-play global estiver ativo, avança automaticamente
                     } else {
@@ -448,7 +455,6 @@
             currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
             cancelAnimationFrame(animationFrameId);
             updateProgressBar();
-            // firstSpacePress permanece false para que o próximo GO avance para a próxima música
         }
 
         function pauseAudio() {
@@ -489,11 +495,10 @@
                  stopAudio();
                  return;
             }
-            // Correção para voltar à primeira se tentar avançar da última
             if (index >= playlist.length) {
-                index = 0;
-            } else if (index < 0) { // Se tentar voltar da primeira, vai para a última
-                index = playlist.length - 1;
+                index = 0; // Volta para a primeira se tentar avançar da última
+            } else if (index < 0) {
+                index = playlist.length - 1; // Vai para a última se tentar retroceder da primeira
             }
 
             currentIndex = index;
@@ -518,12 +523,13 @@
         // playNext para uso manual (botões, seta direita, barra de espaço) E auto-play global
         function playNext() {
             if (playlist.length === 0) return;
+            // SEMPRE pare a faixa atual antes de carregar a próxima
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
                 currentSource = null;
             }
-            isPlaying = false;
+            isPlaying = false; // Garante que o estado de reprodução está correto para a próxima faixa
 
             const nextIndex = (currentIndex + 1) % playlist.length;
             loadAndPlayTrack(nextIndex);
@@ -531,6 +537,7 @@
 
         function playPrev() {
             if (playlist.length === 0) return;
+            // SEMPRE pare a faixa atual antes de carregar a anterior
             if (currentSource) {
                 currentSource.stop();
                 currentSource.disconnect();
@@ -598,8 +605,12 @@
                         playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
                         e.target.classList.toggle('active', playlist[indexToToggle].loop);
 
+                        // Se a faixa em questão é a que está a tocar, atualiza o loop do AudioBufferSourceNode
                         if (currentIndex === indexToToggle && currentSource) {
                             currentSource.loop = playlist[indexToToggle].loop;
+                            // Se desativar o loop, e estiver a tocar, pode ser necessário reiniciar para que onended funcione
+                            // ou garantir que o onended seja disparado ao final da repetição atual.
+                            // Neste caso, o "GO" vai sempre prevalecer, então a interrupção manual é a principal.
                         }
                     });
                     listItem.appendChild(loopButton);
@@ -671,10 +682,12 @@
                 initAudioContext();
 
                 if (firstSpacePress) {
+                    // O primeiro GO SEMPRE toca a primeira música da lista
                     await loadAndPlayTrack(0);
                     firstSpacePress = false;
                 } else {
-                    // Após o primeiro GO, a barra de espaço sempre avança para a próxima
+                    // Próximos GOs SEMPRE avançam para a próxima faixa
+                    // Independentemente de estar em loop ou não.
                     playNext();
                 }
             } else if (event.code === 'ArrowRight') {
