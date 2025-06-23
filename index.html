@@ -200,6 +200,49 @@
             background-color: #5a6268;
         }
 
+
+         .track-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px; /* Espaço entre os controlos */
+        margin-left: auto; /* Alinha à direita, se estiver dentro de um flex container */
+    }
+
+    .volume-slider {
+        width: 80px; /* Ajuste a largura conforme preferir */
+        -webkit-appearance: none; /* Remove o estilo padrão do navegador */
+        appearance: none;
+        height: 8px;
+        background: #d3d3d3;
+        outline: none;
+        opacity: 0.7;
+        transition: opacity .2s;
+        border-radius: 4px;
+    }
+
+    .volume-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #4CAF50; /* Verde */
+        cursor: pointer;
+    }
+
+    .volume-slider::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #4CAF50;
+        cursor: pointer;
+    }
+
+    /* Ajuste para que a faixa ativa mostre o slider sem overflow */
+    #playlist li.active {
+        /* Adicione padding ou ajuste conforme necessário para o layout */
+        padding-right: 10px; /* Exemplo: ajuste o padding direito */
+    }
         #globalAutoPlayButton { /* Estilo para o botão de auto-play global */
             background-color: #17a2b8; /* Azul claro */
             color: white;
@@ -301,591 +344,655 @@
     </div>
 
     <script>
-        const audioFileInput = document.getElementById('audioFileInput');
-        const playlistElement = document.getElementById('playlist');
-        const playPauseButton = document.getElementById('playPauseButton');
-        const prevButton = document.getElementById('prevButton');
-        const nextButton = document.getElementById('nextButton');
-        const stopButton = document.getElementById('stopButton');
-        const clearButton = document.getElementById('clearButton');
-        const currentTrackNameSpan = document.getElementById('currentTrackName');
-        const progressBar = document.getElementById('progressBar');
-        const currentTimeSpan = document.getElementById('currentTime');
-        const durationSpan = document.getElementById('duration');
-        const globalAutoPlayButton = document.getElementById('globalAutoPlayButton');
+       // Seu JavaScript dentro da tag <script>
+const audioFileInput = document.getElementById('audioFileInput');
+const playlistElement = document.getElementById('playlist');
+const playPauseButton = document.getElementById('playPauseButton');
+const prevButton = document.getElementById('prevButton');
+const nextButton = document.getElementById('nextButton');
+const stopButton = document.getElementById('stopButton');
+const clearButton = document.getElementById('clearButton');
+const currentTrackNameSpan = document.getElementById('currentTrackName');
+const progressBar = document.getElementById('progressBar');
+const currentTimeSpan = document.getElementById('currentTime');
+const durationSpan = document.getElementById('duration');
+const globalAutoPlayButton = document.getElementById('globalAutoPlayButton');
 
-        let audioContext;
-        let currentSource = null;
-        let currentBuffer = null;
-        let gainNode = null;
-        let playlist = [];
-        let currentIndex = -1;
-        let isPlaying = false;
-        let startTime = 0;
-        let startOffset = 0;
+let audioContext;
+let currentSource = null;
+let currentBuffer = null;
+let gainNode = null; // Este gainNode será para a faixa individual
+let playlist = [];
+let currentIndex = -1;
+let isPlaying = false;
+let startTime = 0;
+let startOffset = 0;
 
-        let animationFrameId;
-        let firstSpacePress = true; // Controla o comportamento da primeira barra de espaço
-        let isGlobalAutoPlayActive = false;
+let animationFrameId;
+let firstSpacePress = true; // Controla o comportamento da primeira barra de espaço
+let isGlobalAutoPlayActive = false;
 
-        // --- Funções Auxiliares ---
-        function formatTime(seconds) {
-            const minutes = Math.floor(seconds / 60);
-            const remainingSeconds = Math.floor(seconds % 60);
-            return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+// --- Funções Auxiliares ---
+function formatTime(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+function updateProgressBar() {
+    if (isPlaying && currentBuffer && audioContext && audioContext.state === 'running') {
+        let elapsed = audioContext.currentTime - startTime;
+
+        if (currentSource && currentSource.loop) {
+            elapsed = elapsed % currentBuffer.duration;
         }
 
-        function updateProgressBar() {
-            if (isPlaying && currentBuffer && audioContext && audioContext.state === 'running') {
-                let elapsed = audioContext.currentTime - startTime;
+        const progress = (elapsed / currentBuffer.duration) * 100;
+        progressBar.style.width = `${progress}%`;
+        currentTimeSpan.textContent = formatTime(elapsed);
 
-                if (currentSource && currentSource.loop) {
-                    elapsed = elapsed % currentBuffer.duration;
-                }
-
-                const progress = (elapsed / currentBuffer.duration) * 100;
-                progressBar.style.width = `${progress}%`;
-                currentTimeSpan.textContent = formatTime(elapsed);
-
-                if (elapsed >= currentBuffer.duration && (!currentSource || !currentSource.loop)) {
-                    progressBar.style.width = '100%';
-                    currentTimeSpan.textContent = formatTime(currentBuffer.duration);
-                }
-                animationFrameId = requestAnimationFrame(updateProgressBar);
-            } else {
-                 progressBar.style.width = '0%';
-                 currentTimeSpan.textContent = '00:00';
-                 durationSpan.textContent = '00:00';
-                 cancelAnimationFrame(animationFrameId);
-            }
+        if (elapsed >= currentBuffer.duration && (!currentSource || !currentSource.loop)) {
+            progressBar.style.width = '100%';
+            currentTimeSpan.textContent = formatTime(currentBuffer.duration);
         }
+        animationFrameId = requestAnimationFrame(updateProgressBar);
+    } else {
+         progressBar.style.width = '0%';
+         currentTimeSpan.textContent = '00:00';
+         durationSpan.textContent = '00:00';
+         cancelAnimationFrame(animationFrameId);
+    }
+}
 
-        function resetPlaybackState() {
-            console.log("resetPlaybackState: Iniciando limpeza.");
-            if (currentSource) {
-                currentSource.stop();
-                currentSource.disconnect();
-                currentSource = null;
-                console.log("resetPlaybackState: currentSource limpo.");
-            }
-            if (gainNode) {
-                gainNode.disconnect();
-                gainNode = null;
-                console.log("resetPlaybackState: gainNode limpo.");
-            }
-            if (audioContext && audioContext.state === 'running') {
-                audioContext.suspend();
-                console.log("resetPlaybackState: AudioContext suspenso.");
-            }
-            isPlaying = false;
-            playPauseButton.textContent = 'Play/Pause';
-            currentTrackNameSpan.textContent = 'Nenhuma Faixa';
-            currentIndex = -1; // Redefine o índice para -1 ao limpar tudo
-            currentBuffer = null;
-            startOffset = 0;
-            startTime = 0;
-            cancelAnimationFrame(animationFrameId);
-            updateProgressBar();
-            highlightCurrentTrack();
-            firstSpacePress = true; // AQUI: Garante que a primeira barra de espaço volte ao comportamento inicial
-            console.log("resetPlaybackState: Limpeza concluída.");
-        }
+function resetPlaybackState() {
+    console.log("resetPlaybackState: Iniciando limpeza.");
+    if (currentSource) {
+        currentSource.stop();
+        currentSource.disconnect();
+        currentSource = null;
+        console.log("resetPlaybackState: currentSource limpo.");
+    }
+    if (gainNode) {
+        gainNode.disconnect();
+        gainNode = null;
+        console.log("resetPlaybackState: gainNode limpo.");
+    }
+    if (audioContext && audioContext.state === 'running') {
+        audioContext.suspend();
+        console.log("resetPlaybackState: AudioContext suspenso.");
+    }
+    isPlaying = false;
+    playPauseButton.textContent = 'Play/Pause';
+    currentTrackNameSpan.textContent = 'Nenhuma Faixa';
+    currentIndex = -1; // Redefine o índice para -1 ao limpar tudo
+    currentBuffer = null;
+    startOffset = 0;
+    startTime = 0;
+    cancelAnimationFrame(animationFrameId);
+    updateProgressBar();
+    highlightCurrentTrack();
+    firstSpacePress = true;
+    console.log("resetPlaybackState: Limpeza concluída.");
+}
 
-        // --- Funções de Áudio ---
+// --- Funções de Áudio ---
 
-        function initAudioContext() {
-            if (!audioContext || audioContext.state === 'closed') {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                console.log("initAudioContext: Novo AudioContext criado.");
-            }
-            if (audioContext.state === 'suspended') {
-                audioContext.resume().then(() => {
-                    console.log("initAudioContext: AudioContext retomado.");
-                }).catch(e => console.error("Erro ao resumir AudioContext:", e));
-            } else {
-                console.log("initAudioContext: AudioContext já está running ou fechado.");
-            }
-        }
+function initAudioContext() {
+    if (!audioContext || audioContext.state === 'closed') {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log("initAudioContext: Novo AudioContext criado.");
+        // Não há masterGainNode aqui, conectamos direto ao destination
+    }
+    if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+            console.log("initAudioContext: AudioContext retomado.");
+        }).catch(e => console.error("Erro ao resumir AudioContext:", e));
+    } else {
+        console.log("initAudioContext: AudioContext já está running ou fechado.");
+    }
+}
 
-        async function loadAudioFile(file) {
-            initAudioContext();
-            console.log(`loadAudioFile: Tentando carregar e decodificar: ${file.name}`);
-            try {
-                const arrayBuffer = await file.arrayBuffer();
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                console.log(`loadAudioFile: Sucesso ao decodificar: ${file.name}`);
-                return audioBuffer;
-            } catch (error) {
-                console.error(`loadAudioFile: Erro ao decodificar ${file.name}:`, error);
-                throw error;
-            }
-        }
+async function loadAudioFile(file) {
+    initAudioContext();
+    console.log(`loadAudioFile: Tentando carregar e decodificar: ${file.name}`);
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        console.log(`loadAudioFile: Sucesso ao decodificar: ${file.name}`);
+        return audioBuffer;
+    } catch (error) {
+        console.error(`loadAudioFile: Erro ao decodificar ${file.name}:`, error);
+        throw error;
+    }
+}
 
-        /**
-         * Reproduz um AudioBuffer a partir de um determinado offset.
-         * Sempre cria um *novo* AudioBufferSourceNode e um GainNode.
-         * @param {AudioBuffer} buffer O buffer de áudio a ser reproduzido.
-         * @param {number} offset A posição (em segundos) de onde iniciar a reprodução.
-         */
-        function playAudio(buffer, offset = 0) {
-            console.log(`playAudio: Tentando tocar faixa com offset: ${offset}. Faixa: ${playlist[currentIndex]?.name}`);
-            initAudioContext();
+/**
+ * Reproduz um AudioBuffer a partir de um determinado offset.
+ * Sempre cria um *novo* AudioBufferSourceNode e um GainNode.
+ * @param {AudioBuffer} buffer O buffer de áudio a ser reproduzido.
+ * @param {number} offset A posição (em segundos) de onde iniciar a reprodução.
+ */
+function playAudio(buffer, offset = 0) {
+    console.log(`playAudio: Tentando tocar faixa com offset: ${offset}. Faixa: ${playlist[currentIndex]?.name}`);
+    initAudioContext();
 
-            // Limpeza da faixa anterior (para "calar a anterior")
-            if (currentSource) {
-                currentSource.stop();
-                currentSource.disconnect();
-                console.log("playAudio: Source anterior parado e desconectado para tocar nova faixa.");
-            }
-            if (gainNode) {
-                gainNode.disconnect();
-                console.log("playAudio: GainNode anterior desconectado para tocar nova faixa.");
-            }
-            currentSource = null;
-            gainNode = null;
+    // Limpeza da faixa anterior (para "calar a anterior")
+    if (currentSource) {
+        currentSource.stop();
+        currentSource.disconnect();
+        console.log("playAudio: Source anterior parado e desconectado para tocar nova faixa.");
+    }
+    if (gainNode) {
+        gainNode.disconnect();
+        console.log("playAudio: GainNode anterior desconectado para tocar nova faixa.");
+    }
+    currentSource = null;
+    gainNode = null;
 
-            currentSource = audioContext.createBufferSource();
-            currentSource.buffer = buffer;
+    currentSource = audioContext.createBufferSource();
+    currentSource.buffer = buffer;
 
-            gainNode = audioContext.createGain();
-            currentSource.connect(gainNode);
-            gainNode.connect(audioContext.destination);
+    gainNode = audioContext.createGain();
+    currentSource.connect(gainNode);
+    gainNode.connect(audioContext.destination); // Conectando diretamente ao destino
 
-            gainNode.gain.setValueAtTime(1, audioContext.currentTime);
-
-            currentSource.loop = (playlist[currentIndex] && playlist[currentIndex].loop && !isGlobalAutoPlayActive);
-
-            currentSource.onended = () => {
-                console.log(`onended: Faixa ${playlist[currentIndex]?.name} terminou. Loop: ${currentSource?.loop}`);
-                if (currentSource && !currentSource.loop) {
-                    if (isGlobalAutoPlayActive) {
-                        playNext();
-                    } else {
-                        stopAudioAfterCompletion();
-                    }
-                }
-            };
-
-            try {
-                currentSource.start(0, offset);
-                startTime = audioContext.currentTime - offset;
-                isPlaying = true;
-                playPauseButton.textContent = 'Pause';
-                highlightCurrentTrack();
-                durationSpan.textContent = formatTime(buffer.duration);
-                updateProgressBar();
-                audioContext.resume().catch(e => console.error("Erro ao resumir AudioContext durante play:", e));
-                console.log(`playAudio: Faixa ${playlist[currentIndex]?.name} iniciada com sucesso.`);
-            } catch (e) {
-                console.error("playAudio: Erro ao iniciar a faixa:", e);
-                alert("Erro ao iniciar a reprodução da faixa: " + playlist[currentIndex].name);
-                stopAudio();
-            }
-        }
-
-        /**
-         * Realiza a limpeza final após uma faixa terminar naturalmente (não em loop).
-         */
-        function stopAudioAfterCompletion() {
-            console.log("stopAudioAfterCompletion: Iniciando limpeza pós-faixa.");
-            if (currentSource) {
-                currentSource.stop();
-                currentSource.disconnect();
-                currentSource = null;
-            }
-            if (gainNode) {
-                gainNode.disconnect();
-                gainNode = null;
-            }
-            
-            if (audioContext && audioContext.state === 'running' && !isGlobalAutoPlayActive) {
-                 audioContext.suspend();
-            }
-            isPlaying = false;
-            playPauseButton.textContent = 'Play/Pause';
-            
-            if (!isGlobalAutoPlayActive) {
-                currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
-            }
-            
-            cancelAnimationFrame(animationFrameId);
-            updateProgressBar();
-            startOffset = 0;
-            firstSpacePress = true; // AQUI: Resetar para o caso de parar no meio da lista.
-            console.log("stopAudioAfterCompletion: Limpeza concluída.");
-        }
-
-        function pauseAudio() {
-            console.log("pauseAudio: Pausando reprodução.");
-            if (currentSource && isPlaying) {
-                currentSource.stop();
-                startOffset = (audioContext.currentTime - startTime) % currentBuffer.duration;
-                isPlaying = false;
-                playPauseButton.textContent = 'Play/Pause';
-                if (audioContext && audioContext.state === 'running') {
-                    audioContext.suspend();
-                }
-                cancelAnimationFrame(animationFrameId);
-                if (currentSource) {
-                    currentSource.disconnect();
-                    currentSource = null;
-                }
-                if (gainNode) {
-                    gainNode.disconnect();
-                    gainNode = null;
-                }
-                console.log(`pauseAudio: Faixa pausada em ${formatTime(startOffset)}`);
-            }
-        }
-
-        function stopAudio() {
-            console.log("stopAudio: Parando reprodução completamente.");
-            if (currentSource) {
-                currentSource.stop();
-                currentSource.disconnect();
-                currentSource = null;
-            }
-            if (gainNode) {
-                gainNode.disconnect();
-                gainNode = null;
-            }
-            if (audioContext && audioContext.state === 'running') {
-                 audioContext.suspend();
-            }
-            isPlaying = false;
-            playPauseButton.textContent = 'Play/Pause';
-            startOffset = 0;
-            startTime = 0;
-            currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
-            highlightCurrentTrack();
-            cancelAnimationFrame(animationFrameId);
-            updateProgressBar();
-            firstSpacePress = true; // AQUI: Redefine para que a próxima barra de espaço inicie a primeira música ou a música atual se for pausa.
-            console.log("stopAudio: Reprodução parada e estado resetado.");
-        }
-
-        /**
-         * Carrega (se necessário) e reproduz uma faixa da playlist pelo seu índice.
-         * Garante que um novo AudioBufferSourceNode é criado.
-         * @param {number} index O índice da faixa na playlist.
-         */
-        async function loadAndPlayTrack(index) {
-            console.log(`loadAndPlayTrack: Chamado para índice ${index}`);
-            if (playlist.length === 0) {
-                 console.log("loadAndPlayTrack: Playlist vazia.");
-                 stopAudio();
-                 return;
-            }
-
-            let newIndex = index;
-            // Ajusta o índice para ciclar na playlist
-            if (index >= playlist.length) {
-                newIndex = 0;
-                console.log(`loadAndPlayTrack: Fim da lista, voltando ao índice 0.`);
-            } else if (index < 0) {
-                newIndex = playlist.length - 1;
-                console.log(`loadAndPlayTrack: Início da lista, indo para o último índice (${newIndex}).`);
-            }
-
-            // Lógica para pausar/retomar a mesma faixa
-            if (currentIndex === newIndex) {
-                console.log(`loadAndPlayTrack: Faixa atual (${newIndex}) selecionada novamente.`);
-                if (isPlaying) {
-                    pauseAudio();
-                    return;
-                } else if (!isPlaying && currentBuffer && startOffset > 0) {
-                    playAudio(currentBuffer, startOffset);
-                    return;
-                }
-            }
-            
-            startOffset = 0; // Sempre começa do início para uma nova seleção de faixa
-
-            // Limpa explicitamente os nodes de áudio antigos antes de iniciar um novo
-            if (currentSource) {
-                currentSource.stop();
-                currentSource.disconnect();
-                currentSource = null;
-                console.log("loadAndPlayTrack: currentSource anterior limpo.");
-            }
-            if (gainNode) {
-                gainNode.disconnect();
-                gainNode = null;
-                console.log("loadAndPlayTrack: gainNode anterior limpo.");
-            }
-            isPlaying = false;
-
-            currentIndex = newIndex; // Atualiza o índice após a validação
-            currentTrackNameSpan.textContent = playlist[currentIndex].name;
-            console.log(`loadAndPlayTrack: Nova faixa selecionada: ${playlist[currentIndex].name} (Índice: ${currentIndex})`);
-
-            try {
-                // Forçando recarregamento do buffer sempre
-                console.log(`loadAndPlayTrack: Forçando recarregamento do buffer para ${playlist[currentIndex].name} (Índice: ${currentIndex}).`);
-                playlist[currentIndex].buffer = await loadAudioFile(playlist[currentIndex].file);
-                playlist[currentIndex].duration = playlist[currentIndex].buffer.duration;
-                console.log(`loadAndPlayTrack: Buffer de ${playlist[currentIndex].name} recarregado com sucesso.`);
-                
-                currentBuffer = playlist[currentIndex].buffer;
-                if (!currentBuffer) {
-                    console.error(`loadAndPlayTrack: currentBuffer é nulo para ${playlist[currentIndex].name} APÓS tentar carregar/usar existente.`);
-                    alert("Erro interno: O buffer da faixa não foi carregado corretamente.");
-                    stopAudio();
-                    return;
-                }
-                playAudio(currentBuffer, startOffset);
-            } catch (error) {
-                console.error("loadAndPlayTrack: Erro crítico ao carregar ou decodificar áudio:", error);
-                alert("Não foi possível carregar a faixa: " + playlist[currentIndex].name + ". Verifique o formato do arquivo ou o suporte do navegador.");
-                stopAudio();
-            }
-        }
-
-        function playNext() {
-            if (playlist.length === 0) return;
-            console.log(`playNext: Avançando para o próximo. Índice atual: ${currentIndex}`);
-            loadAndPlayTrack((currentIndex + 1));
-        }
-
-        function playPrev() {
-            if (playlist.length === 0) return;
-            console.log(`playPrev: Retrocedendo para o anterior. Índice atual: ${currentIndex}`);
-            loadAndPlayTrack((currentIndex - 1));
-        }
-
-        /**
-         * Inicia um efeito de fade out na faixa atual e a para no final.
-         * @param {number} durationSeconds A duração do fade out em segundos.
-         */
-        function startFadeOut(durationSeconds) {
-            console.log(`startFadeOut: Iniciando fade out de ${durationSeconds} segundos.`);
-            if (!isPlaying || !gainNode || !audioContext) {
-                console.log("startFadeOut: Não há faixa a tocar ou nó de ganho ausente.");
-                return;
-            }
-
-            const currentTime = audioContext.currentTime;
-            const currentGain = gainNode.gain.value;
-
-            gainNode.gain.cancelScheduledValues(currentTime);
-            gainNode.gain.setValueAtTime(currentGain, currentTime);
-            gainNode.gain.linearRampToValueAtTime(0, currentTime + durationSeconds);
-
-            setTimeout(() => {
-                console.log("startFadeOut: Fade out concluído. Chamando stopAudio.");
-                stopAudio();
-                firstSpacePress = false; // AQUI: Garante que depois do fade out e stop, a barra de espaço avance.
-            }, durationSeconds * 1000 + 50);
-        }
-
-        function updatePlaylistDisplay() {
-            playlistElement.innerHTML = '';
-
-            if (playlist.length === 0) {
-                const emptyItem = document.createElement('li');
-                emptyItem.textContent = 'Nenhum áudio selecionado.';
-                playlistElement.appendChild(emptyItem);
-                return;
-            }
-
-            playlist.forEach((track, index) => {
-                const listItem = document.createElement('li');
-                listItem.dataset.index = index;
-
-                const trackInfoDiv = document.createElement('div');
-                trackInfoDiv.classList.add('track-info');
-
-                const trackNumberSpan = document.createElement('span');
-                trackNumberSpan.classList.add('track-number');
-                trackNumberSpan.textContent = `${index + 1}.`;
-                trackInfoDiv.appendChild(trackNumberSpan);
-                trackInfoDiv.appendChild(document.createTextNode(track.name));
-
-                listItem.appendChild(trackInfoDiv);
-
-                const loopButton = document.createElement('button');
-                loopButton.classList.add('loop-button');
-                loopButton.textContent = 'Loop';
-                loopButton.dataset.index = index;
-                loopButton.classList.toggle('active', track.loop);
-                loopButton.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const indexToToggle = parseInt(e.target.dataset.index);
-                    if (playlist[indexToToggle]) {
-                         playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
-                         e.target.classList.toggle('active', playlist[indexToToggle].loop);
-
-                         if (currentIndex === indexToToggle && currentSource) {
-                             currentSource.loop = playlist[indexToToggle].loop && !isGlobalAutoPlayActive;
-                         }
-                    }
-                });
-                listItem.appendChild(loopButton);
-
-                // Event listener para clique na faixa
-                listItem.addEventListener('click', (e) => {
-                    if (e.target.closest('.loop-button')) {
-                        return;
-                    }
-                    console.log(`Clique na faixa: ${listItem.dataset.index}`);
-                    loadAndPlayTrack(parseInt(listItem.dataset.index));
-                });
-                
-                playlistElement.appendChild(listItem);
-            });
-
-            highlightCurrentTrack();
-        }
-
-        function highlightCurrentTrack() {
-            const listItems = playlistElement.querySelectorAll('li');
-            listItems.forEach((item, index) => {
-                if (index === currentIndex) {
-                    item.classList.add('active');
-                    item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                } else {
-                    item.classList.remove('active');
-                }
-            });
-        }
+    // Defina o volume inicial do gainNode com base no volume salvo da faixa
+    const trackVolume = playlist[currentIndex]?.volume !== undefined ? playlist[currentIndex].volume : 1.0;
+    gainNode.gain.setValueAtTime(trackVolume, audioContext.currentTime);
 
 
-        // --- Event Listeners ---
+    currentSource.loop = (playlist[currentIndex] && playlist[currentIndex].loop && !isGlobalAutoPlayActive);
 
-        audioFileInput.addEventListener('change', async (event) => {
-            const files = event.target.files;
-            if (files.length === 0) {
-                if (playlist.length === 0) {
-                     updatePlaylistDisplay();
-                     currentTrackNameSpan.textContent = 'Nenhuma Faixa';
-                }
-                return;
-            }
-
-            let newFilesAdded = false;
-            let initialLoad = playlist.length === 0 && currentIndex === -1;
-
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                console.log(`Processing file: ${file.name}, Type: ${file.type}`);
-                if (file.type.startsWith('audio/')) {
-                    const exists = playlist.some(track => track.name === file.name);
-                    if (!exists) {
-                        playlist.push({ name: file.name, file: file, buffer: null, duration: 0, loop: false });
-                        newFilesAdded = true;
-                    } else {
-                        console.warn(`Arquivo "${file.name}" já existe na playlist e foi ignorado.`);
-                    }
-                } else {
-                    console.warn(`Arquivo ignorado (não é áudio): ${file.name}`);
-                }
-            }
-
-            updatePlaylistDisplay();
-
-            if (newFilesAdded && initialLoad && playlist.length > 0) {
-                currentIndex = 0;
-                currentTrackNameSpan.textContent = playlist[0].name;
-                console.log(`audioFileInput: Primeiro arquivo carregado e selecionado: ${playlist[0].name}`);
-            } else if (playlist.length > 0 && currentTrackNameSpan.textContent === 'Nenhuma Faixa') {
-                currentTrackNameSpan.textContent = playlist[currentIndex !== -1 ? currentIndex : 0].name;
-            }
-        });
-
-
-        playPauseButton.addEventListener('click', async () => {
-            console.log("playPauseButton: Clique detectado.");
-            if (playlist.length === 0) {
-                alert("Por favor, selecione arquivos de áudio primeiro.");
-                return;
-            }
-            initAudioContext();
-
-            if (isPlaying) {
-                pauseAudio();
-            } else {
-                await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
-            }
-        });
-
-        prevButton.addEventListener('click', playPrev);
-        nextButton.addEventListener('click', playNext);
-        stopButton.addEventListener('click', stopAudio);
-
-        clearButton.addEventListener('click', () => {
-            if (confirm("Tem certeza que deseja limpar a playlist?")) {
-                console.log("clearButton: Limpando playlist.");
-                resetPlaybackState();
-                playlist = [];
-                if (audioContext) {
-                    audioContext.close().catch(e => console.error("Erro ao fechar AudioContext:", e));
-                    audioContext = null;
-                    console.log("clearButton: AudioContext fechado.");
-                }
-                updatePlaylistDisplay();
-                currentTrackNameSpan.textContent = 'Nenhuma Faixa';
-            }
-        });
-
-        globalAutoPlayButton.addEventListener('click', () => {
-            isGlobalAutoPlayActive = !isGlobalAutoPlayActive;
-            globalAutoPlayButton.classList.toggle('active', isGlobalAutoPlayActive);
-            globalAutoPlayButton.textContent = `Auto-Play: ${isGlobalAutoPlayActive ? 'Ativado' : 'Desativado'}`;
-            console.log(`Auto-Play: ${isGlobalAutoPlayActive ? 'Ativado' : 'Desativado'}`);
-
-            if (isPlaying && currentSource && playlist[currentIndex]) {
-                currentSource.loop = playlist[currentIndex].loop && !isGlobalAutoPlayActive;
-                console.log(`Auto-Play: Loop da faixa atual ajustado para: ${currentSource.loop}`);
-            }
-        });
-
-        document.addEventListener('keydown', async (event) => {
-            console.log(`keydown: Key: ${event.key}, Code: ${event.code}, Ctrl: ${event.ctrlKey}`);
-            if (event.ctrlKey && event.code === 'Space') {
-                event.preventDefault();
-                if (isPlaying) {
-                    startFadeOut(3);
-                    // Não redefinimos firstSpacePress AQUI, mas sim na função stopAudio/stopAudioAfterCompletion
-                } else {
-                    alert("Nenhuma faixa a tocar para aplicar o fade out.");
-                }
-                return;
-            }
-
-            if (event.code === 'Space') {
-                event.preventDefault();
-
-                if (playlist.length === 0) {
-                    alert("Por favor, selecione arquivos de áudio primeiro.");
-                    return;
-                }
-
-                initAudioContext();
-
-                // Se firstSpacePress for true, significa que é o primeiro play
-                // Ou que uma pausa completa/stop/fade out foi feita, redefinindo o estado.
-                // Se o currentIndex for -1, sempre deve começar da primeira faixa.
-                if (firstSpacePress || currentIndex === -1) {
-                    console.log("keydown: Primeira barra de espaço ou estado resetado. Tocando primeira faixa ou a atual se foi uma pausa.");
-                    // Se o currentIndex for -1 (playlist vazia ou resetada), começa do 0.
-                    // Se não, tenta tocar a faixa atual (útil após um pause que não zerou o currentIndex)
-                    await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
-                    firstSpacePress = false; // Define como false após o primeiro acionamento
-                } else {
-                    console.log("keydown: Barra de espaço. Tocando próxima faixa.");
-                    playNext();
-                }
-            } else if (event.code === 'ArrowRight') {
-                console.log("keydown: Seta direita. Tocando próxima faixa.");
+    currentSource.onended = () => {
+        console.log(`onended: Faixa ${playlist[currentIndex]?.name} terminou. Loop: ${currentSource?.loop}`);
+        if (currentSource && !currentSource.loop) {
+            if (isGlobalAutoPlayActive) {
                 playNext();
-            } else if (event.code === 'ArrowLeft') {
-                console.log("keydown: Seta esquerda. Tocando faixa anterior.");
-                playPrev();
+            } else {
+                stopAudioAfterCompletion();
+            }
+        }
+    };
+
+    try {
+        currentSource.start(0, offset);
+        startTime = audioContext.currentTime - offset;
+        isPlaying = true;
+        playPauseButton.textContent = 'Pause';
+        highlightCurrentTrack();
+        durationSpan.textContent = formatTime(buffer.duration);
+        updateProgressBar();
+        audioContext.resume().catch(e => console.error("Erro ao resumir AudioContext durante play:", e));
+        console.log(`playAudio: Faixa ${playlist[currentIndex]?.name} iniciada com sucesso.`);
+    } catch (e) {
+        console.error("playAudio: Erro ao iniciar a faixa:", e);
+        alert("Erro ao iniciar a reprodução da faixa: " + playlist[currentIndex].name);
+        stopAudio();
+    }
+}
+
+/**
+ * Realiza a limpeza final após uma faixa terminar naturalmente (não em loop).
+ */
+function stopAudioAfterCompletion() {
+    console.log("stopAudioAfterCompletion: Iniciando limpeza pós-faixa.");
+    if (currentSource) {
+        currentSource.stop();
+        currentSource.disconnect();
+        currentSource = null;
+    }
+    if (gainNode) {
+        gainNode.disconnect();
+        gainNode = null;
+    }
+
+    if (audioContext && audioContext.state === 'running' && !isGlobalAutoPlayActive) {
+         audioContext.suspend();
+    }
+    isPlaying = false;
+    playPauseButton.textContent = 'Play/Pause';
+
+    if (!isGlobalAutoPlayActive) {
+        currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
+    }
+
+    cancelAnimationFrame(animationFrameId);
+    updateProgressBar();
+    startOffset = 0;
+    firstSpacePress = true;
+    console.log("stopAudioAfterCompletion: Limpeza concluída.");
+}
+
+function pauseAudio() {
+    console.log("pauseAudio: Pausando reprodução.");
+    if (currentSource && isPlaying) {
+        currentSource.stop();
+        startOffset = (audioContext.currentTime - startTime) % currentBuffer.duration;
+        isPlaying = false;
+        playPauseButton.textContent = 'Play/Pause';
+        if (audioContext && audioContext.state === 'running') {
+            audioContext.suspend();
+        }
+        cancelAnimationFrame(animationFrameId);
+        if (currentSource) {
+            currentSource.disconnect();
+            currentSource = null;
+        }
+        if (gainNode) {
+            gainNode.disconnect();
+            gainNode = null;
+        }
+        console.log(`pauseAudio: Faixa pausada em ${formatTime(startOffset)}`);
+    }
+}
+
+function stopAudio() {
+    console.log("stopAudio: Parando reprodução completamente.");
+    if (currentSource) {
+        currentSource.stop();
+        currentSource.disconnect();
+        currentSource = null;
+    }
+    if (gainNode) {
+        gainNode.disconnect();
+        gainNode = null;
+    }
+    if (audioContext && audioContext.state === 'running') {
+         audioContext.suspend();
+    }
+    isPlaying = false;
+    playPauseButton.textContent = 'Play/Pause';
+    startOffset = 0;
+    startTime = 0;
+    currentTrackNameSpan.textContent = playlist[currentIndex]?.name || 'Nenhuma Faixa';
+    highlightCurrentTrack();
+    cancelAnimationFrame(animationFrameId);
+    updateProgressBar();
+    firstSpacePress = true;
+    console.log("stopAudio: Reprodução parada e estado resetado.");
+}
+
+/**
+ * Carrega (se necessário) e reproduz uma faixa da playlist pelo seu índice.
+ * Garante que um novo AudioBufferSourceNode é criado.
+ * @param {number} index O índice da faixa na playlist.
+ */
+async function loadAndPlayTrack(index) {
+    console.log(`loadAndPlayTrack: Chamado para índice ${index}`);
+    if (playlist.length === 0) {
+         console.log("loadAndPlayTrack: Playlist vazia.");
+         stopAudio();
+         return;
+    }
+
+    let newIndex = index;
+    // Ajusta o índice para ciclar na playlist
+    if (index >= playlist.length) {
+        newIndex = 0;
+        console.log(`loadAndPlayTrack: Fim da lista, voltando ao índice 0.`);
+    } else if (index < 0) {
+        newIndex = playlist.length - 1;
+        console.log(`loadAndPlayTrack: Início da lista, indo para o último índice (${newIndex}).`);
+    }
+
+    // Lógica para pausar/retomar a mesma faixa
+    if (currentIndex === newIndex) {
+        console.log(`loadAndPlayTrack: Faixa atual (${newIndex}) selecionada novamente.`);
+        if (isPlaying) {
+            pauseAudio();
+            return;
+        } else if (!isPlaying && currentBuffer && startOffset > 0) {
+            playAudio(currentBuffer, startOffset);
+            return;
+        }
+    }
+
+    startOffset = 0; // Sempre começa do início para uma nova seleção de faixa
+
+    // Limpa explicitamente os nodes de áudio antigos antes de iniciar um novo
+    if (currentSource) {
+        currentSource.stop();
+        currentSource.disconnect();
+        currentSource = null;
+        console.log("loadAndPlayTrack: currentSource anterior limpo.");
+    }
+    if (gainNode) {
+        gainNode.disconnect();
+        gainNode = null;
+        console.log("loadAndPlayTrack: gainNode anterior limpo.");
+    }
+    isPlaying = false;
+
+    currentIndex = newIndex; // Atualiza o índice após a validação
+    currentTrackNameSpan.textContent = playlist[currentIndex].name;
+    console.log(`loadAndPlayTrack: Nova faixa selecionada: ${playlist[currentIndex].name} (Índice: ${currentIndex})`);
+
+    try {
+        // Forçando recarregamento do buffer sempre (para diagnóstico)
+        console.log(`loadAndPlayTrack: Forçando recarregamento do buffer para ${playlist[currentIndex].name} (Índice: ${currentIndex}).`);
+        playlist[currentIndex].buffer = await loadAudioFile(playlist[currentIndex].file);
+        playlist[currentIndex].duration = playlist[currentIndex].buffer.duration;
+        console.log(`loadAndPlayTrack: Buffer de ${playlist[currentIndex].name} recarregado com sucesso.`);
+
+        currentBuffer = playlist[currentIndex].buffer;
+        if (!currentBuffer) {
+            console.error(`loadAndPlayTrack: currentBuffer é nulo para ${playlist[currentIndex].name} APÓS tentar carregar/usar existente.`);
+            alert("Erro interno: O buffer da faixa não foi carregado corretamente.");
+            stopAudio();
+            return;
+        }
+        playAudio(currentBuffer, startOffset);
+    } catch (error) {
+        console.error("loadAndPlayTrack: Erro crítico ao carregar ou decodificar áudio:", error);
+        alert("Não foi possível carregar a faixa: " + playlist[currentIndex].name + ". Verifique o formato do arquivo ou o suporte do navegador.");
+        stopAudio();
+    }
+}
+
+function playNext() {
+    if (playlist.length === 0) return;
+    console.log(`playNext: Avançando para o próximo. Índice atual: ${currentIndex}`);
+    loadAndPlayTrack((currentIndex + 1));
+}
+
+function playPrev() {
+    if (playlist.length === 0) return;
+    console.log(`playPrev: Retrocedendo para o anterior. Índice atual: ${currentIndex}`);
+    loadAndPlayTrack((currentIndex - 1));
+}
+
+/**
+ * Inicia um efeito de fade out na faixa atual e a para no final.
+ * @param {number} durationSeconds A duração do fade out em segundos.
+ */
+function startFadeOut(durationSeconds) {
+    console.log(`startFadeOut: Iniciando fade out de ${durationSeconds} segundos.`);
+    if (!isPlaying || !gainNode || !audioContext) {
+        console.log("startFadeOut: Não há faixa a tocar ou nó de ganho ausente.");
+        return;
+    }
+
+    const currentTime = audioContext.currentTime;
+    const currentGain = gainNode.gain.value; // Pega o volume atual da faixa
+
+    gainNode.gain.cancelScheduledValues(currentTime);
+    gainNode.gain.setValueAtTime(currentGain, currentTime);
+    gainNode.gain.linearRampToValueAtTime(0, currentTime + durationSeconds);
+
+    setTimeout(() => {
+        console.log("startFadeOut: Fade out concluído. Chamando stopAudio.");
+        stopAudio();
+        firstSpacePress = false;
+    }, durationSeconds * 1000 + 50);
+}
+
+function updatePlaylistDisplay() {
+    playlistElement.innerHTML = '';
+
+    if (playlist.length === 0) {
+        const emptyItem = document.createElement('li');
+        emptyItem.textContent = 'Nenhum áudio selecionado.';
+        playlistElement.appendChild(emptyItem);
+        return;
+    }
+
+    playlist.forEach((track, index) => {
+        const listItem = document.createElement('li');
+        listItem.dataset.index = index;
+
+        const trackInfoDiv = document.createElement('div');
+        trackInfoDiv.classList.add('track-info');
+
+        const trackNumberSpan = document.createElement('span');
+        trackNumberSpan.classList.add('track-number');
+        trackNumberSpan.textContent = `${index + 1}.`;
+        trackInfoDiv.appendChild(trackNumberSpan);
+        trackInfoDiv.appendChild(document.createTextNode(track.name));
+
+        listItem.appendChild(trackInfoDiv);
+
+        // Controles adicionais da faixa (Loop e Volume)
+        const trackControlsDiv = document.createElement('div');
+        trackControlsDiv.classList.add('track-controls');
+
+        // Botão Loop
+        const loopButton = document.createElement('button');
+        loopButton.classList.add('loop-button');
+        loopButton.textContent = 'Loop';
+        loopButton.dataset.index = index;
+        loopButton.classList.toggle('active', track.loop);
+        loopButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const indexToToggle = parseInt(e.target.dataset.index);
+            if (playlist[indexToToggle]) {
+                 playlist[indexToToggle].loop = !playlist[indexToToggle].loop;
+                 e.target.classList.toggle('active', playlist[indexToToggle].loop);
+
+                 if (currentIndex === indexToToggle && currentSource) {
+                     currentSource.loop = playlist[indexToToggle].loop && !isGlobalAutoPlayActive;
+                 }
             }
         });
+        trackControlsDiv.appendChild(loopButton);
 
-        // Inicialização da exibição da playlist ao carregar a página
+        // Slider de Volume para a faixa individual
+        const volumeLabel = document.createElement('span');
+        volumeLabel.textContent = 'Vol:';
+        volumeLabel.style.whiteSpace = 'nowrap';
+        trackControlsDiv.appendChild(volumeLabel);
+
+        const volumeSlider = document.createElement('input');
+        volumeSlider.type = 'range';
+        volumeSlider.classList.add('volume-slider');
+        volumeSlider.min = '0';
+        volumeSlider.max = '1';
+        volumeSlider.step = '0.01';
+        volumeSlider.value = track.volume; // Define o valor inicial do slider
+
+        volumeSlider.addEventListener('input', (e) => {
+            e.stopPropagation(); // Impede que o clique no slider ative o clique na faixa
+            const newVolume = parseFloat(e.target.value);
+            playlist[index].volume = newVolume; // Atualiza o volume salvo na playlist
+
+            // Se esta faixa for a que está a tocar, ajuste o volume em tempo real
+            if (currentIndex === index && gainNode) {
+                gainNode.gain.setValueAtTime(newVolume, audioContext.currentTime);
+            }
+            console.log(`Volume de ${playlist[index].name} ajustado para: ${newVolume}`);
+        });
+        trackControlsDiv.appendChild(volumeSlider);
+
+        listItem.appendChild(trackControlsDiv); // Adicione os controlos ao listItem
+
+        // Event listener para clique na faixa
+        listItem.addEventListener('click', (e) => {
+            // Garante que o clique nos controlos da faixa não a reproduza
+            if (e.target.closest('.loop-button') || e.target.closest('.volume-slider')) {
+                return;
+            }
+            console.log(`Clique na faixa: ${listItem.dataset.index}`);
+            loadAndPlayTrack(parseInt(listItem.dataset.index));
+        });
+
+        playlistElement.appendChild(listItem);
+    });
+
+    highlightCurrentTrack();
+}
+
+
+// --- Event Listeners ---
+
+audioFileInput.addEventListener('change', async (event) => {
+    const files = event.target.files;
+    if (files.length === 0) {
+        if (playlist.length === 0) {
+             updatePlaylistDisplay();
+             currentTrackNameSpan.textContent = 'Nenhuma Faixa';
+        }
+        return;
+    }
+
+    let newFilesAdded = false;
+    let initialLoad = playlist.length === 0 && currentIndex === -1;
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        console.log(`Processing file: ${file.name}, Type: ${file.type}`);
+        if (file.type.startsWith('audio/')) {
+            const exists = playlist.some(track => track.name === file.name);
+            if (!exists) {
+                playlist.push({
+                    name: file.name,
+                    file: file,
+                    buffer: null,
+                    duration: 0,
+                    loop: false,
+                    volume: 1.0 // Adicionado aqui
+                });
+                newFilesAdded = true;
+            } else {
+                console.warn(`Arquivo "${file.name}" já existe na playlist e foi ignorado.`);
+            }
+        } else {
+            console.warn(`Arquivo ignorado (não é áudio): ${file.name}`);
+        }
+    }
+
+    updatePlaylistDisplay();
+
+    if (newFilesAdded && initialLoad && playlist.length > 0) {
+        currentIndex = 0;
+        currentTrackNameSpan.textContent = playlist[0].name;
+        console.log(`audioFileInput: Primeiro arquivo carregado e selecionado: ${playlist[0].name}`);
+        preloadNextTracks(2); // Inicia o pré-carregamento das primeiras faixas
+    } else if (playlist.length > 0 && currentTrackNameSpan.textContent === 'Nenhuma Faixa') {
+        currentTrackNameSpan.textContent = playlist[currentIndex !== -1 ? currentIndex : 0].name;
+        preloadNextTracks(2); // Inicia o pré-carregamento
+    }
+});
+
+
+playPauseButton.addEventListener('click', async () => {
+    console.log("playPauseButton: Clique detectado.");
+    if (playlist.length === 0) {
+        alert("Por favor, selecione arquivos de áudio primeiro.");
+        return;
+    }
+    initAudioContext();
+
+    if (isPlaying) {
+        pauseAudio();
+    } else {
+        await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
+    }
+});
+
+prevButton.addEventListener('click', playPrev);
+nextButton.addEventListener('click', playNext);
+stopButton.addEventListener('click', stopAudio);
+
+clearButton.addEventListener('click', () => {
+    if (confirm("Tem certeza que deseja limpar a playlist?")) {
+        console.log("clearButton: Limpando playlist.");
+        resetPlaybackState();
+        playlist = [];
+        if (audioContext) {
+            audioContext.close().catch(e => console.error("Erro ao fechar AudioContext:", e));
+            audioContext = null;
+            console.log("clearButton: AudioContext fechado.");
+        }
         updatePlaylistDisplay();
+        currentTrackNameSpan.textContent = 'Nenhuma Faixa';
+    }
+});
+
+globalAutoPlayButton.addEventListener('click', () => {
+    isGlobalAutoPlayActive = !isGlobalAutoPlayActive;
+    globalAutoPlayButton.classList.toggle('active', isGlobalAutoPlayActive);
+    globalAutoPlayButton.textContent = `Auto-Play: ${isGlobalAutoPlayActive ? 'Ativado' : 'Desativado'}`;
+    console.log(`Auto-Play: ${isGlobalAutoPlayActive ? 'Ativado' : 'Desativado'}`);
+
+    if (isPlaying && currentSource && playlist[currentIndex]) {
+        currentSource.loop = playlist[currentIndex].loop && !isGlobalAutoPlayActive;
+        console.log(`Auto-Play: Loop da faixa atual ajustado para: ${currentSource.loop}`);
+    }
+});
+
+document.addEventListener('keydown', async (event) => {
+    console.log(`keydown: Key: ${event.key}, Code: ${event.code}, Ctrl: ${event.ctrlKey}`);
+    if (event.ctrlKey && event.code === 'Space') {
+        event.preventDefault();
+        if (isPlaying) {
+            startFadeOut(3);
+        } else {
+            alert("Nenhuma faixa a tocar para aplicar o fade out.");
+        }
+        return;
+    }
+
+    if (event.code === 'Space') {
+        event.preventDefault();
+
+        if (playlist.length === 0) {
+            alert("Por favor, selecione arquivos de áudio primeiro.");
+            return;
+        }
+
+        initAudioContext();
+
+        if (firstSpacePress || currentIndex === -1) {
+            console.log("keydown: Primeira barra de espaço ou estado resetado. Tocando primeira faixa ou a atual se foi uma pausa.");
+            await loadAndPlayTrack(currentIndex === -1 ? 0 : currentIndex);
+            firstSpacePress = false;
+        } else {
+            console.log("keydown: Barra de espaço. Tocando próxima faixa.");
+            playNext();
+        }
+    } else if (event.code === 'ArrowRight') {
+        console.log("keydown: Seta direita. Tocando próxima faixa.");
+        playNext();
+    } else if (event.code === 'ArrowLeft') {
+        console.log("keydown: Seta esquerda. Tocando faixa anterior.");
+        playPrev();
+    }
+});
+
+// Adicione a função preloadNextTracks
+async function preloadNextTracks(numTracks = 2) {
+    if (!audioContext) {
+        initAudioContext();
+    }
+
+    const startIndex = currentIndex !== -1 ? currentIndex : 0; // Começa a partir da faixa atual, ou da 0 se nada a tocar
+
+    for (let i = 1; i <= numTracks; i++) {
+        let nextIndex = (startIndex + i) % playlist.length;
+        if (nextIndex < 0) {
+            nextIndex = playlist.length + nextIndex;
+        }
+        
+        // Evitar tentar pré-carregar se a lista for muito pequena e o índice for igual
+        if (playlist.length === 0 || nextIndex === currentIndex) continue;
+
+        if (playlist[nextIndex] && !playlist[nextIndex].buffer) {
+            console.log(`Preload: Iniciando pré-carregamento para: ${playlist[nextIndex].name} (Índice: ${nextIndex})`);
+            try {
+                playlist[nextIndex].buffer = await loadAudioFile(playlist[nextIndex].file);
+                playlist[nextIndex].duration = playlist[nextIndex].buffer.duration;
+                console.log(`Preload: Sucesso no pré-carregamento para: ${playlist[nextIndex].name}`);
+            } catch (error) {
+                console.error(`Preload: Erro ao pré-carregar ${playlist[nextIndex].name}:`, error);
+            }
+        } else if (playlist[nextIndex]) {
+            console.log(`Preload: ${playlist[nextIndex].name} (Índice: ${nextIndex}) já tem buffer. Ignorando pré-carregamento.`);
+        }
+    }
+}
+
+
+// Inicialização da exibição da playlist ao carregar a página
+updatePlaylistDisplay();
     </script>
 </body>
 </html>
